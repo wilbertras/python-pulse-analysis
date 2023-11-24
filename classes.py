@@ -335,7 +335,8 @@ class MKID:
         ylim = [-0.5, np.ceil(np.amax(self.signal[t_idx]))]
         xlim = [0, pw]
         t = np.linspace(tlim[0], tlim[1], len(t_idx))
-        fig, axes = plt.subplot_mosaic("ABC;DEF;GHI;JJJ", layout='constrained')
+
+        fig, axes = plt.subplot_mosaic("ABC;DEF;GHI;JJJ", layout='constrained', figsize=(12, 8))
         fig.suptitle('Overview: %s' % (self.data['name']))
         axes["A"].plot(t, self.signal[t_idx], linewidth=0.5)  
         axes["A"].hlines(mph, *tlim, color='tab:red', lw=0.5)
