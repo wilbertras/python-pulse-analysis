@@ -184,7 +184,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         # Assign buffer for pulse alignment. The buffer is applied on both sides of the pulsewindow: buffer + pw + buffer
         buffer = int(buffer * pw)
         buffer_len = int(2 * buffer + pw)
-        align_shift = int(rise_offset * pw)  # shift introduced before smoothed_loc, such that there is 0.1*pw before and 0.9*pw after
+        align_shift = int(rise_offset * pw)  # shift introduced before smoothed_loc, such that there is rise_offset*pw before pulse rise
 
         # Filter peak that is too close to the end of data array (too close too start is already filtered in previous step)
         length_signal = len(signal)
@@ -203,6 +203,13 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         nr_far_enough = filter.sum()
         perc_too_close = round(100 * (1 - nr_far_enough / nr_pulses))
 
+        # Correct for drift by substracting the mean in the time before the rising edge
+        # offset = np.mean(pulses_aligned[:, :int(0.75*align_shift*ssf)], axis=1)  
+        # offset_expanded = np.outer(offset, np.ones(pw*ssf))
+        # pulses_aligned -= offset_expanded
+        # H -= offset
+        # pks_smoothed -= offset_expanded
+
         # Cut pulses from timestream and align on smoothed peak
         sel_locs = copy(locs_smoothed)
         pulses_aligned = []
@@ -211,11 +218,16 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         filter_diff = np.ones(len(sel_locs), dtype=bool)
         for i in range(len(locs_smoothed)):
             loc = locs_smoothed[i]
-            left = int(loc - buffer)
-            right = int(loc + pw + buffer)
+            left = int(loc - align_shift - buffer)
+            right = int(loc + (pw - align_shift) + buffer)
             pulse = signal[left:right]    # first take a cut with buffer on both sides based on loc from smoothed data
             smoothed_pulse = smoothed_signal[left:right]
             
+            # Correct for drift by substracting the mean of the signal in the buffer before and after the pulse from the pulse itself
+            offset = np.mean(np.hstack((pulse[:buffer], pulse[-buffer:])))
+            pulse -= offset
+            smoothed_pulse -= offset
+
             # Supersample the peak
             if ssf and ssf > 1:
                 pulse = supersample(pulse, buffer_len * ssf)
@@ -223,7 +235,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
             else: 
                 ssf = 1
             
-            smoothed_loc = buffer * ssf   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
+            smoothed_loc = (buffer+align_shift) * ssf   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
             smoothed_peak = pks_smoothed[i]
             len_pulse = int(buffer_len * ssf)
             unsmoothed_height = pulse[smoothed_loc]
@@ -277,6 +289,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                             ax.scatter(idx_max, full_max, color='r', marker='v')
                             ax.scatter(rising_edge, half_max, color='g', marker='s')
                             ax.axhline(half_max, c='g', lw=0.2)
+                            ax.axhline(offset, c='tab:purple', lw=0.2)
                             ax.axvline(smoothed_loc, c='r', lw=0.2)
                             ax.axvline(rising_edge, c='g', lw=0.2)
                         i += 1
@@ -288,6 +301,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                         ax.scatter(idx_max, full_max, color='r', marker='v')
                         ax.scatter(rising_edge, half_max, color='g', marker='s')
                         ax.axhline(half_max, c='g', lw=0.2)
+                        ax.axhline(offset, c='tab:purple', lw=0.2)
                         ax.axvline(smoothed_loc, c='r', lw=0.2)
                         ax.axvline(rising_edge, c='g', lw=0.2)
                     i += 1
@@ -298,12 +312,6 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         locs_smoothed = locs_smoothed[filter_diff]      
         pks_smoothed = pks_smoothed[filter_diff]
         
-        # Correct for drift by substracting the mean in the time before the rising edge
-        # offset = np.mean(pulses_aligned[:, :int(0.75*align_shift*ssf)], axis=1)  
-        # offset_expanded = np.outer(offset, np.ones(pw*ssf))
-        # pulses_aligned -= offset_expanded
-        # H -= offset
-        # pks_smoothed -= offset_expanded
 
         # Compute mean and std of aligned pulses
         mean_aligned_pulse = np.mean(pulses_aligned, axis=0)
