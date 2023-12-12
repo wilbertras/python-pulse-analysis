@@ -203,19 +203,13 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         nr_far_enough = filter.sum()
         perc_too_close = round(100 * (1 - nr_far_enough / nr_pulses))
 
-        # Correct for drift by substracting the mean in the time before the rising edge
-        # offset = np.mean(pulses_aligned[:, :int(0.75*align_shift*ssf)], axis=1)  
-        # offset_expanded = np.outer(offset, np.ones(pw*ssf))
-        # pulses_aligned -= offset_expanded
-        # H -= offset
-        # pks_smoothed -= offset_expanded
-
         # Cut pulses from timestream and align on smoothed peak
         sel_locs = copy(locs_smoothed)
         pulses_aligned = []
         idx_halfmax = []
         H = []
         filter_diff = np.ones(len(sel_locs), dtype=bool)
+        plot_count = 0
         for i in range(len(locs_smoothed)):
             loc = locs_smoothed[i]
             left = int(loc - align_shift - buffer)
@@ -279,32 +273,29 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                 filter_diff[i] = False
 
             # Option to plot some pulses with their peaks, half maxima and rising edge indicated
+            
             if plot_pulse:
                 if below:
                     if full_max < below:
-                        if i % every == 0:
-                            fig, ax = plt.subplots()
-                            ax.plot(pulse, lw=0.2)
-                            ax.plot(smoothed_pulse, lw=0.2, color='tab:orange')
-                            ax.scatter(idx_max, full_max, color='r', marker='v')
-                            ax.scatter(rising_edge, half_max, color='g', marker='s')
-                            ax.axhline(half_max, c='g', lw=0.2)
-                            ax.axhline(offset, c='tab:purple', lw=0.2)
-                            ax.axvline(smoothed_loc, c='r', lw=0.2)
-                            ax.axvline(rising_edge, c='g', lw=0.2)
-                        i += 1
+                        plot_count += 1
                 else:
-                    if i % every == 0:
-                        fig, ax = plt.subplots()
-                        ax.plot(pulse, lw=0.2)
-                        ax.plot(smoothed_pulse, lw=0.2, color='tab:orange')
-                        ax.scatter(idx_max, full_max, color='r', marker='v')
-                        ax.scatter(rising_edge, half_max, color='g', marker='s')
-                        ax.axhline(half_max, c='g', lw=0.2)
-                        ax.axhline(offset, c='tab:purple', lw=0.2)
-                        ax.axvline(smoothed_loc, c='r', lw=0.2)
-                        ax.axvline(rising_edge, c='g', lw=0.2)
-                    i += 1
+                    plot_count += 1
+                if plot_count == every:
+                    fig, ax = plt.subplots()
+                    t = np.linspace(0, pw, len(pulse))
+                    ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', ls='--', label='smoothed pulse')
+                    ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
+                    ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
+                    ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
+                    ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
+                    ax.axhline(mph, c='tab:red', lw=0.5, label='min. peak height')
+                    ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
+                    ax.set_xlabel('time [$\mu$s]')
+                    ax.set_ylabel('response')
+                    ax.set_xlim([0, pw])
+                    ax.legend()
+                    plot_count = 0
+                
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
         H = np.array(H)

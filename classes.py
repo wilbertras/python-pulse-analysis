@@ -3,6 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks, welch
 import pickle
+import matplotlib as mpl
+plt.style.use('seaborn-v0_8-whitegrid')
+mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
+
 
 class MKID:
     def __init__(self, LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize=40):
