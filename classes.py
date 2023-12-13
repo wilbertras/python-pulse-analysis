@@ -5,6 +5,7 @@ from scipy.signal import find_peaks, welch
 import pickle
 import matplotlib as mpl
 plt.style.use('seaborn-v0_8-whitegrid')
+mpl.rcParams.update({'font.size': 10})
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
 
 
@@ -24,7 +25,7 @@ class MKID:
         if len(self.dark_files) > chuncksize:
             self.dark_files = self.dark_files[:chuncksize]
         self.dark_amp, self.dark_phase = f.concat_vis(self.dark_files)
-        
+            
         self.chuncksize = chuncksize
         self.nr_segments = len(self.light_files)      
         if self.nr_segments <= self.chuncksize:
@@ -48,7 +49,7 @@ class MKID:
             self.data[x] = info[x]
 
 
-    def initiate(self, settings, f, binsize=0.1, dpulse=10, plot_pulse=False, every=100, below=False):
+    def initiate(self, settings, f, binsize=0.1, dpulse=10, plot_pulse=False, below=False):
         sf = settings['sf']
         response = settings['response']
         coord = settings['coord']
@@ -73,23 +74,29 @@ class MKID:
 
         self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
         
-        pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse, every, below)    
+        pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse, below)    
 
         t_idx = np.arange(int(tlim[0]*sf), int(tlim[1]*sf), 1)
         ylim = [-0.5, np.ceil(np.amax(self.signal[t_idx]))]
         xlim = [0, pw]
         t = np.linspace(tlim[0], tlim[1], len(t_idx))
         
-        fig, axes = plt.subplot_mosaic("ABC;DEF", layout='constrained')
+        fig, axes = plt.subplot_mosaic("AABB;FECD", layout='constrained', figsize=(12, 6))
         fig.suptitle('Overview: %s' % (self.data['name']))
         axes["A"].plot(t, self.signal[t_idx], linewidth=0.5)  
         axes["A"].hlines(mph, *tlim, color='tab:red', lw=0.5)
         axes["A"].set_ylim(ylim)
         axes["A"].set_xlim(tlim)
+        axes["A"].set_xlabel('time [s]')
+        axes["A"].set_ylabel('response')
+        axes["A"].set_title('Light')
         axes["B"].plot(t, self.dark_signal[t_idx], linewidth=0.5)
         axes["B"].hlines(noise_mph, *tlim, color='tab:red', lw=0.5)
         axes["B"].set_ylim(ylim)
         axes["B"].set_xlim(tlim)
+        axes["B"].set_xlabel('time [s]')
+        axes["B"].set_ylabel('response')
+        axes["B"].set_title('Dark')
         
         if sw:  
             kernel = f.get_window(window, pw, sw)
@@ -121,15 +128,28 @@ class MKID:
         axes["C"].plot(t, pulses[::dpulse, :].T, lw=0.25)
         axes["C"].set_ylim(ylim)
         axes["C"].set_xlim(xlim)
+        axes["C"].set_xlabel('time [$\mu$s]')
+        axes["C"].set_ylabel('response')
+        axes["C"].set_title('Overlayed pulses')
 
         ylim = [1e-4, 3]
         axes["D"].semilogy(t, np.mean(pulses, axis=0))
         axes["D"].set_ylim(ylim)
         axes["D"].set_xlim(xlim)
+        axes["D"].set_xlabel('time [$\mu$s]')
+        axes["D"].set_ylabel('response')
+        axes["D"].set_title('Average pulse on semilogy')
         binedges = np.arange(np.amin(H), np.amax(H), binsize)
         axes["E"].hist(H, bins=binedges)
+        axes["E"].set_xlabel('response')
+        axes["E"].set_ylabel('counts')
+        axes["E"].set_title('Pulse heights')
         binedges = np.arange(mph, np.amax(H_smoothed), binsize)
-        axes["F"].hist(H_smoothed, bins=binedges)
+        axes["F"].hist(H_smoothed, bins=binedges, facecolor='tab:orange')
+        axes["F"].axvline(mph, c='tab:red')
+        axes["F"].set_xlabel('response')
+        axes["F"].set_ylabel('counts')
+        axes["F"].set_title('Smoothed pulse heights')
         
 
     def plot_dark(self, settings, f):
@@ -162,20 +182,21 @@ class MKID:
         ylim = [-0.5, 2]
         xlim = [0, pw]
         fig, axes = plt.subplot_mosaic("AB", layout='constrained')
-        axes['A'].plot(t, self.dark_phase[t_idx], linewidth=0.5)
-        axes['A'].hlines(noise_mph, *tlim, color='tab:red', lw=0.5)
-        axes['A'].set_ylim(ylim)
-        axes['A'].set_xlim(tlim)
-        if sw:  
-            kernel = f.get_window(window, pw, sw)
-            smoothed_dark_signal = np.convolve(self.dark_phase, kernel, mode='valid')
-            axes['A'].plot(t, smoothed_dark_signal[t_idx], lw=0.5)
-        axes["B"].semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]), color='tab:blue')
-        axes["B"].grid(which='major', lw=0.3)
-        axes["B"].grid(which='minor', lw=0.2)
-        axes["B"].xaxis.get_major_locator().set_params(numticks=99)
-        axes["B"].xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
-        axes["B"].set_ylim([-80, 10*np.log10(np.amax(Nxx))])
+        # axes['A'].plot(t, self.dark_phase[t_idx], linewidth=0.5)
+        # axes['A'].hlines(noise_mph, *tlim, color='tab:red', lw=0.5)
+        # axes['A'].set_ylim(ylim)
+        # axes['A'].set_xlim(tlim)
+        # if sw:  
+        #     kernel = f.get_window(window, pw, sw)
+        #     smoothed_dark_signal = np.convolve(self.dark_phase, kernel, mode='valid')
+        #     axes['A'].plot(t, smoothed_dark_signal[t_idx], lw=0.5)
+        # axes["B"].semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]), color='tab:blue')
+        # axes["B"].grid(which='major', lw=0.3)
+        # axes["B"].grid(which='minor', lw=0.2)
+        # axes["B"].xaxis.get_major_locator().set_params(numticks=99)
+        # axes["B"].xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
+        # axes["B"].set_ylim([-80, 10*np.log10(np.amax(Nxx))])
+        self.plot_psd_noise(axes['A'])
 
 
     def overview(self, settings, f, redo_peak_model=False, save=False, figpath=''):
@@ -277,11 +298,16 @@ class MKID:
                 raise Exception('Please input range as integer or array-like')    
         else:
             idx_range = np.ones(len(H_smoothed), dtype=bool)
+        
+        _, dark_H, _, _, dark_H_smoothed = f.peak_model(self.dark_signal, noise_mph, noise_mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)  
 
+        ## Mean pulse
         pulses_range = pulses[idx_range, :]
         H_range = H[idx_range]
         mean_pulse = np.mean(pulses_range, axis=0)
+        sxx = f.psd(mean_pulse, sf*ssf)
         
+        ## Determine some pulse statistics
         nr_sel_pulses = len(sel_locs)
         if nr_sel_pulses == 0:
             raise Exception("No pulses selected")
@@ -289,16 +315,15 @@ class MKID:
         nr_det_pulses = nr_sel_pulses + nr_rej_pulses
         rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
         photon_rate = nr_det_pulses / self.nr_segments
+
+        ## Optimal filtering and resolving powers
         H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
-        # fxx, sxx =  welch(mean_pulse, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True) # f.psd(mean_pulse, sf*ssf, return_onesided=True)
-        sxx = f.psd(mean_pulse, sf*ssf)
-        # fxx, dxx =  welch(pulses, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True, axis=1) # f.psd(mean_pulse, sf*ssf, return_onesided=True)
-        # mean_dxx = np.mean(dxx, axis=0)
         R, _, _ = f.resolving_power(H_range, binsize)
         R_opt, pdf_y, pdf_x = f.resolving_power(H_opt, binsize)
         R_i = 1 / np.sqrt(1 / R_opt**2 - 1 / R_sn**2)
         
+        ## Fit lifetime
         tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, fit_T)
         if isinstance(fit_T, (int, float)):
             plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf)
@@ -306,13 +331,16 @@ class MKID:
             plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf)
         fit_x = np.arange(len(plot_x))
         fit_y = f.exp_decay(fit_x, *popt)
-        
+
+        ## Add data and settings to MKID object
         self.data['mean_pulse'] = mean_pulse
         self.data['R'] = R
         self.data['Ropt'] = R_opt
         self.data['Ri'] = R_i
         self.data['Rsn'] = R_sn
-        self.data['H'] = H
+        self.data['dark_H'] = dark_H
+        self.data['dark_H_smoothed'] = dark_H_smoothed
+        self.data['idx_H_range'] = idx_range
         self.data['Hopt'] = H_opt
         self.data['<Hopt>'] = mean_H_opt
         self.data['Nph'] = photon_rate
@@ -323,130 +351,229 @@ class MKID:
         self.data['fxx'] = fxx
         self.data['sxx'] = sxx
         self.data['nxx'] = nxx
+        self.data['mean_dxx'] = mean_dxx
         self.data['Nfxx'] = Nfxx
         self.data['Nxx'] = Nxx
         self.data['tqp'] = tau_qp
         self.data['fitx'] = plot_x
         self.data['fity'] = fit_y
+        self.data['sel_locs'] = sel_locs
+        self.data['filtered_locs'] = filtered_locs
+        self.data['dark_locs'] = dark_locs
         self.settings = settings
 
-        if ssf and ssf > 1:
-            pass
-        else:
-            ssf = 1
+        ## Plot overview
+        self.plot_overview()
+
+        ## Save data
+        if save:
+            self.save(figpath)
+
+
+    def plot_overview(self):
+        sw = self.settings['sw']
+        fig, axes = plt.subplot_mosaic("AABB;CHID;EFGD;JJJJ", layout='constrained', figsize=(12, 8))
+        fig.suptitle('Overview: %s' % (self.data['name']))
+        self.plot_timestream(axes['A'], type='light')
+        self.plot_timestream(axes['B'], type='dark')
+        self.plot_stacked_pulses(axes['C'])
+        self.plot_psds(axes['D'])
+        self.plot_mean_pulse(axes['H'], type='lin')
+        self.plot_mean_pulse(axes['I'], type='log')
+        self.plot_table(axes['J'])
+        if sw:
+            self.plot_hist(axes['E'], type='smoothed')
+        self.plot_hist(axes['F'], type='unsmoothed')
+        self.plot_hist(axes['G'], type='optimal filter')
+
+
+    def plot_timestream(self, ax, type):
+        tlim = self.settings['tlim']
+        sf = self.settings['sf']
+        pw = self.settings['pw']
+        mph = self.settings['mph']
+        sw = self.settings['sw']
+        H = self.data['H']
+        window = self.settings['window']
+
+        if type == 'light':
+            signal = self.signal
+            locs = self.data['sel_locs']
+            filtered_locs = self.data['filtered_locs']
+            ax.set_title('Light timestream')
+        elif type == 'dark':   
+            signal = self.dark_signal 
+            locs = self.data['dark_locs']
+            ax.set_title('Dark timestream')
 
         t_idx = np.arange(int(tlim[0]*sf), int(tlim[1]*sf), 1)
-        ylim = [-0.5, np.ceil(np.amax(self.signal[t_idx]))]
-        xlim = [0, pw]
+        ylim = [-0.5, np.ceil(np.amax(signal[t_idx]))]
         t = np.linspace(tlim[0], tlim[1], len(t_idx))
 
-        fig, axes = plt.subplot_mosaic("ABC;DEF;GHI;JJJ", layout='constrained', figsize=(12, 8))
-        fig.suptitle('Overview: %s' % (self.data['name']))
-        axes["A"].plot(t, self.signal[t_idx], linewidth=0.5)  
-        axes["A"].hlines(mph, *tlim, color='tab:red', lw=0.5)
-        axes["A"].set_ylim(ylim)
-        axes["A"].set_xlim(tlim)
-        axes["B"].plot(t, self.dark_signal[t_idx], linewidth=0.5)
-        axes["B"].hlines(noise_mph, *tlim, color='tab:red', lw=0.5)
-        axes["B"].set_ylim(ylim)
-        axes["B"].set_xlim(tlim)
-        
+        ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream')  
         if sw:  
             kernel = f.get_window(window, pw, sw)
-            smoothed_signal = np.convolve(self.signal, kernel, mode='valid')
-            smoothed_dark_signal = np.convolve(self.dark_signal, kernel, mode='valid')
-            axes["A"].plot(t, smoothed_signal[t_idx], lw=0.5)
-            axes["B"].plot(t, smoothed_dark_signal[t_idx], lw=0.5)
-        t = np.linspace(0, pw-1, pw*ssf)
-        axes["C"].plot(t, pulses[::10, :].T, lw=0.25)
-        axes["C"].set_ylim(ylim)
-        axes["C"].set_xlim(xlim)
-
-        plot_sel_idx = (sel_locs > tlim[0]*sf) & (sel_locs < tlim[1]*sf)
-        plot_sel_locs = sel_locs[plot_sel_idx]
-        plot_sel_H = H[plot_sel_idx]
-        axes["A"].scatter(plot_sel_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5)
-        if len(filtered_locs) != 0:
+            smoothed_signal = np.convolve(signal, kernel, mode='valid')
+            ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed')
+        ax.axhline(mph, color='tab:red', lw=0.5, label='mph')
+        
+        if type == 'light':
+            plot_sel_idx = (locs > tlim[0]*sf) & (locs < tlim[1]*sf)
+            plot_sel_locs = locs[plot_sel_idx]
+            plot_sel_H = H[plot_sel_idx]
+            ax.scatter(plot_sel_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses')
             plot_filtered_idx = (filtered_locs > tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
             plot_filtered_locs = filtered_locs[plot_filtered_idx]
-            axes["A"].scatter(plot_filtered_locs / sf, self.signal[plot_filtered_locs], marker='v', c='None', edgecolors='tab:red', lw=0.5)
+            ax.scatter(plot_filtered_locs / sf, self.signal[plot_filtered_locs], marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses')
+        elif type == 'dark':
+            plot_dark_idx = (locs > tlim[0]*sf) & (locs < tlim[1]*sf)
+            plot_dark_locs = locs[plot_dark_idx]
+            ax.scatter(plot_dark_locs / sf, self.signal[plot_dark_locs], marker='v', c='None', edgecolors='tab:red', lw=0.5)
+        
+        ax.set_ylim(ylim)
+        ax.set_xlim(tlim)
+        ax.set_xlabel('time [s]')
+        ax.set_ylabel('response')
+        ax.legend(ncols=2)
+
+
+    def plot_stacked_pulses(self, ax):
+        pw = self.settings['pw']
+        pulses = self.data['pulses']
+        nr_pulses = pulses.shape[0]
+        len_pulses = pulses.shape[-1]
+        t = np.linspace(0, pw-1, len_pulses)
+        nr2plot = 1000
+        if nr2plot > nr_pulses:
+            every = 1
+        else:
+            every = int(np.round(nr_pulses / nr2plot))
+            
+        pulses2plot = pulses[::every, :].T
+        ax.plot(t, pulses2plot, lw=0.25)
+        ax.set_xlim([0, pw-1])
+        ax.set_xlabel('time [$\mu$s]')
+        ax.set_ylabel('response')
+        ax.set_title('%d overlaying pulses' % pulses2plot.shape[-1])
     
-        if len(dark_locs) != 0:
-            plot_dark_locs = dark_locs[(dark_locs > tlim[0]*sf) & (dark_locs < tlim[1]*sf)]
-            axes["B"].scatter(plot_dark_locs / sf, self.dark_signal[plot_dark_locs], marker='v', c='None', edgecolors='tab:red', lw=0.5)
-        ylim = [-100, 10*np.log10(np.amax((sxx, Nxx[:len(sxx)])))]
+
+    def plot_psds(self, ax):
+        pw = self.settings['pw']
+        sxx = self.data['sxx']
+        fxx = self.data['fxx']
+        nxx = self.data['nxx']
+        mean_dxx = self.data['mean_dxx']
+
         onesided = round(pw / 2) + 1
-        axes["D"].semilogx(fxx[:onesided], 10*np.log10(sxx[:onesided]))
-        axes["D"].semilogx(fxx[:onesided], 10*np.log10(nxx[:onesided]))
-        axes["D"].semilogx(fxx[:onesided], 10*np.log10(mean_dxx[:onesided]))
-        axes["D"].set_ylim([-100, 10*np.log10(np.amax(sxx))])
-        axes["D"].grid(which='major', lw=0.3)
-        axes["D"].grid(which='minor', lw=0.2)
-        axes["D"].xaxis.get_major_locator().set_params(numticks=99)
-        axes["D"].xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
-        # axes["E"].semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]), color='tab:blue')
-        # axes["E"].semilogx(fxx[1:onesided], 10*np.log10(nxx[1:onesided]), color='tab:orange')
-        # axes["E"].grid(which='major', lw=0.3)
-        # axes["E"].grid(which='minor', lw=0.2)
-        # axes["E"].xaxis.get_major_locator().set_params(numticks=99)
-        # axes["E"].xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
-        # axes["E"].set_ylim([-100, 10*np.log10(np.amax(Nxx))])
+        ax.semilogx(fxx[:onesided], 10*np.log10(sxx[:onesided]), label='psd(avg. pulse)')
+        ax.semilogx(fxx[:onesided], 10*np.log10(nxx[:onesided]), label='psd(avg. noise)')
+        ax.semilogx(fxx[:onesided], 10*np.log10(mean_dxx[:onesided]), label='avg. psd(pulses)')
+        ax.set_ylim([-100, 10*np.log10(np.amax(sxx))])
+        ax.grid(which='major', lw=0.5)
+        ax.grid(which='minor', lw=0.2)
+        ax.xaxis.get_major_locator().set_params(numticks=99)
+        ax.xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
+        ax.legend()
+        ax.set_xlabel('frequency [Hz]')
+        ax.set_ylabel('PSD [dBc/Hz]')
+        ax.set_title('Optimal filter models')
+    
 
-        bin_min = np.amin((np.amin(H), np.amin(H_opt)))
-        bin_max = np.amax((np.amax(H), np.amax(H_opt)))
-        bin_edges = np.arange(bin_min, bin_max, binsize)
-        smoothed_bin_edges = np.arange(bin_min, bin_max, binsize / 2)
-        _, dark_H, _, _, dark_H_smoothed = f.peak_model(self.dark_signal, noise_mph, noise_mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)  
-        axes["E"].hist(dark_H, label='dark', color='tab:green', alpha=0.5)
-        axes["E"].hist(H[idx_range], bins=bin_edges, label='light', color='tab:blue', alpha=0.5)
-        if sw:
-            axes["E"].hist(dark_H_smoothed, label='dark smoothed', color='tab:purple', alpha=0.5)
-        axes["E"].axvline(noise_mph, 0, 1, c='r', lw=0.5)
-        axes["E"].set_xlim([0, bin_max])
+    def plot_mean_pulse(self, ax, type):
+        pw = self.settings['pw']
+        ssf = self.settings['ssf']
+        mean_pulse = self.data['mean_pulse']
+        fitx = self.data['fitx']
+        fity = self.data['fity']
 
-        axes["F"].hist(H[idx_range], bins=bin_edges, label='light chosen', color='tab:blue', alpha=0.5)
-        axes["F"].hist(H[~idx_range], bins=bin_edges, label='light leftout ', color='tab:grey', alpha=0.5)
-        if sw:
-            axes["F"].hist(H_smoothed, bins=smoothed_bin_edges, label='light smoothed', color='tab:purple', alpha=0.5)
-        axes["F"].hist(H_opt, bins=bin_edges, label='optimal filter', color='tab:orange', alpha=0.5)
-        axes["F"].axvline(mph, 0, 1, c='r', lw=0.5)
-        axes["F"].set_xlim([0, bin_max])
-        
-        axes["G"].hist(H_opt, bins=bin_edges, color='tab:orange', alpha=0.5)
-        axes["G"].plot(pdf_x, pdf_y, c='tab:orange')
-        axes["G"].set_xlim([0, bin_max])
+        t = np.linspace(0, pw-1, pw*ssf)
+        if type == 'lin': 
+            ax.plot(t, mean_pulse)
+            ax.plot(fitx, fity, ls='--', label='fit')
+            ax.set_title('Average pulse')
+        elif type == 'log':
+            ax.semilogy(t, mean_pulse)
+            ax.semilogy(fitx, fity, ls='--', label='fit')
+            ax.set_title('Average pulse semilog')
+        ax.set_xlim([0, pw])
+        ax.set_xlabel('time [$\mu$s]')
+        ax.set_ylabel('response')
+        ax.legend()
         
 
-        xlim = [0, pw]
-        ylim = [1e-4, 3]
-        axes["H"].plot(t, mean_pulse)
-        axes["H"].plot(plot_x, fit_y, ls='--')
-        axes["H"].set_xlim([0, pw])
-        axes["I"].semilogy(t, mean_pulse)
-        axes["I"].semilogy(plot_x, f.exp_decay(fit_x, *popt), ls='--')
-        axes["I"].set_xlim(xlim)
-        axes["I"].set_ylim(ylim)
-        
+    def plot_table(self, ax):
         table_results = ['T', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'tqp']
         table_formats = ['%.1f', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.f']
         results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]]
         
-        the_table = axes["J"].table(cellText=results_text,
+        the_table = ax.table(cellText=results_text,
                     rowLabels=['results'],
                     colLabels=table_results,
                     loc='center')
-        _ = axes["J"].axis('off')
+        _ = ax.axis('off')
         the_table.auto_set_font_size(False)
-        the_table.set_fontsize(6)
+        the_table.set_fontsize(10)
 
-        if save:
-            fname = figpath + self.data['name']
-            plt.savefig(fname + '_overview.png')
-            plt.savefig(fname + '_overview.svg')
-            with open(fname + '_settings.txt','w') as f: 
-                for key, value in settings.items():
-                    f.write('%s:%s\n' % (key, value))
-            with open(fname + '_data.txt', 'wb') as file:
-                pickle.dump(self.data, file)
 
-            
+    def plot_hist(self, ax, type):
+        mph = self.settings['mph']
+        noise_mph = self.settings['noise_mph']
+        binsize = self.settings['binsize']
+        H_smoothed = self.data['H_smoothed']
+        H = self.data['H']
+        Hopt = self.data['Hopt']
+        bin_min = np.amin((np.amin(H), np.amin(Hopt)))
+        bin_max = np.amax((np.amax(H), np.amax(Hopt)))
+        bin_edges = np.arange(bin_min, bin_max, binsize)
+        idx_range = self.data['idx_H_range']
+        if type=='smoothed':
+            ax.hist(H_smoothed[idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
+            ax.hist(H_smoothed[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)       
+            ax.set_title('Smoothed heights')    
+        elif type=='unsmoothed':
+            ax.hist(H[idx_range], bins=bin_edges, label='sel.', color='tab:blue', alpha=0.5)
+            ax.hist(H[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
+            ax.set_title('Unsmoothed heights')
+        elif type == 'optimal filter':
+            pdfx = self.data['pdfx']
+            pdfy = self.data['pdfy']
+            ax.hist(H[idx_range], bins=bin_edges, label='original', color='tab:blue', alpha=0.5)
+            ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='optimal filter')
+            ax.plot(pdfx, pdfy, c='tab:green', label='KDE')
+            ax.set_title('Optimal filter heights')
+        elif type == 'dark':
+            dark_H = self.data['dark_H']
+            ax.hist(dark_H, label='dark', color='tab:green', alpha=0.5)
+            ax.hist(H[idx_range], bins=bin_edges, label='light', color='tab:blue', alpha=0.5)
+            ax.axvline(noise_mph, c='r', lw=0.5)
+            ax.set_title('Dark heights')
+        ax.axvline(mph, c='r', lw=0.5)
+        ax.set_xlim([0, bin_max])   
+        ax.legend()
+        ax.set_xlabel('pulse height')
+        ax.set_ylabel('counts')
+
+    def plot_psd_noise(self, ax):
+        Nxx = self.data['Nxx']
+        Nfxx = self.data['Nfxx']
+        ax.semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]), color='tab:blue')
+        ax.set_ylim([-100, 10*np.log10(np.amax(Nxx))])
+        ax.grid(which='major', lw=0.5)
+        ax.grid(which='minor', lw=0.2)
+        ax.xaxis.get_major_locator().set_params(numticks=99)
+        ax.xaxis.get_minor_locator().set_params(numticks=99, subs=np.arange(2, 10, 2)*.1)
+        ax.legend()
+        ax.set_xlabel('frequency [Hz]')
+        ax.set_ylabel('PSD [dBc/Hz]')
+        ax.set_title('PSD dark')
+        
+    def save(self, figpath):
+        fname = figpath + self.data['name']
+        plt.savefig(fname + '_overview.png')
+        plt.savefig(fname + '_overview.svg')
+        with open(fname + '_settings.txt','w') as f: 
+            for key, value in self.settings.items():
+                f.write('%s:%s\n' % (key, value))
+        with open(fname + '_data.txt', 'wb') as file:
+            pickle.dump(self.data, file)
+    

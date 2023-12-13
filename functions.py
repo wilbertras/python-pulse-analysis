@@ -273,29 +273,35 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                 filter_diff[i] = False
 
             # Option to plot some pulses with their peaks, half maxima and rising edge indicated
-            
             if plot_pulse:
-                if below:
-                    if full_max < below:
-                        plot_count += 1
+                if plot_count < plot_pulse:
+                    if below:
+                        if full_max < below:
+                            plot = True
+                        else:
+                            plot = False
+                    else:
+                        plot = True
                 else:
-                    plot_count += 1
-                if plot_count == every:
-                    fig, ax = plt.subplots()
-                    t = np.linspace(0, pw, len(pulse))
-                    ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', ls='--', label='smoothed pulse')
-                    ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
-                    ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
-                    ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
-                    ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
-                    ax.axhline(mph, c='tab:red', lw=0.5, label='min. peak height')
-                    ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
-                    ax.set_xlabel('time [$\mu$s]')
-                    ax.set_ylabel('response')
-                    ax.set_xlim([0, pw])
-                    ax.legend()
-                    plot_count = 0
-                
+                    plot = False 
+            else:
+                plot = False           
+            if plot:
+                fig, ax = plt.subplots()
+                t = np.linspace(0, pw, len(pulse))
+                ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', ls='--', label='smoothed pulse')
+                ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
+                ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
+                ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
+                ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
+                ax.axhline(mph, c='tab:red', lw=0.5, label='min. peak height')
+                ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
+                ax.set_xlabel('time [$\mu$s]')
+                ax.set_ylabel('response')
+                ax.set_xlim([0, pw])
+                ax.legend(ncol=2)
+                plot_count += 1
+            
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
         H = np.array(H)
