@@ -388,7 +388,7 @@ class MKID:
         ax.set_xlim(tlim)
         ax.set_xlabel('time [s]')
         ax.set_ylabel('response')
-        ax.legend(ncols=2)
+        ax.legend(ncols=3)
 
 
     def plot_stacked_pulses(self, ax):
@@ -407,7 +407,7 @@ class MKID:
         ax.set_xlim([0, pw-1])
         ax.set_xlabel('time [$\mu$s]')
         ax.set_ylabel('response')
-        ax.set_title('%d overlaying pulses' % pulses2plot.shape[-1])
+        ax.set_title('%d overlayed pulses' % pulses2plot.shape[-1])
     
 
     def plot_psds(self, ax):
@@ -497,7 +497,7 @@ class MKID:
             pdfx = self.data['pdfx']
             pdfy = self.data['pdfy']
             ax.hist(H[idx_range], bins=bin_edges, label='original', color='tab:blue', alpha=0.5)
-            ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='optimal filter')
+            ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='opt. filter')
             ax.plot(pdfx, pdfy, c='tab:green', label='KDE')
             ax.set_title('Optimal filter heights')
         elif type == 'dark':
