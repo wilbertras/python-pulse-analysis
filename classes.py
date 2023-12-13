@@ -514,7 +514,7 @@ class MKID:
     def plot_psd_noise(self, ax):
         Nxx = self.data['Nxx']
         Nfxx = self.data['Nfxx']
-        ax.semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]), color='tab:blue')
+        ax.semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]))
         ax.set_ylim([-100, 10*np.log10(np.amax(Nxx))])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)
