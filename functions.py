@@ -390,8 +390,6 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
     if nr_good_segments == 0:
         raise Exception('No good noise segments found')
     sxx = sxx_segments / nr_good_segments  # compute the avarage PSD
-    df = sf * ssf / (pw * ssf)
-    # freqs = np.arange(0, sf / 2 + df, df)
     all_locs = all_locs.astype(int)
     photon_rate = len(all_locs) / (nr * pw / sf)
     return freqs, sxx, all_locs, photon_rate
