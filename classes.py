@@ -4,10 +4,18 @@ import numpy as np
 from scipy.signal import find_peaks, welch
 import pickle
 import matplotlib as mpl
+import multiprocessing
 mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
 mpl.rcParams.update({'font.size': 10})
 
+
+# total = len(files)
+#     chunk_size = total // multiprocessing.cpu_count()
+#     chunks = [files[i:i + chunk_size] for i in range(0, total, chunk_size)]
+#     with multiprocessing.Pool() as pool:
+#         dfs = pool.map(parrallel_df, chunks)
+#     dff = pd.concat(dfs, axis=0)
 
 class MKID:
     def __init__(self, LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize=40):
