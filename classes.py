@@ -4,9 +4,9 @@ import numpy as np
 from scipy.signal import find_peaks, welch
 import pickle
 import matplotlib as mpl
-plt.style.use('seaborn-v0_8-whitegrid')
-mpl.rcParams.update({'font.size': 10})
+mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
+mpl.rcParams.update({'font.size': 10})
 
 
 class MKID:
