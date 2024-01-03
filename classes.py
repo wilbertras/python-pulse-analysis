@@ -227,7 +227,6 @@ class MKID:
         tlim = settings['tlim']
         filter_std = settings['filter_std']
         rise_offset = settings['rise_offset']
-        binsize = settings['binsize']
 
         if ssf and ssf > 1:
             pass
@@ -306,7 +305,7 @@ class MKID:
         axes["E"].set_xlabel('response')
         axes["E"].set_ylabel('counts')
         axes["E"].set_title('Pulse heights')
-        binedges = np.arange(mph, np.amax(H_smoothed), binsize)
+        binedges = np.arange(mph, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
         axes["F"].hist(H_smoothed, bins=binedges, facecolor='tab:orange')
         axes["F"].axvline(mph, c='tab:red')
         axes["F"].set_xlabel('response')
