@@ -5,17 +5,11 @@ from scipy.signal import find_peaks, welch
 import pickle
 import matplotlib as mpl
 import multiprocessing
+import itertools
 mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
 mpl.rcParams.update({'font.size': 10})
 
-
-# total = len(files)
-#     chunk_size = total // multiprocessing.cpu_count()
-#     chunks = [files[i:i + chunk_size] for i in range(0, total, chunk_size)]
-#     with multiprocessing.Pool() as pool:
-#         dfs = pool.map(parrallel_df, chunks)
-#     dff = pd.concat(dfs, axis=0)
 
 class MKID:
     def __init__(self, LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize=40):
@@ -55,6 +49,166 @@ class MKID:
             print('No info file obtained')
         for x in info:
             self.data[x] = info[x]
+
+
+    def multithread_overview(self, settings, f, redo_peak_model=False, save=False, figpath=''):
+        sf = settings['sf']
+        response = settings['response']
+        coord = settings['coord']
+        pw = settings['pw']
+        sw = settings['sw']
+        window = settings['window']
+        ssf = settings['ssf']
+        buffer = settings['buffer']
+        mph = settings['mph']
+        mpp = settings['mpp']
+        noise_mph = settings['noise_mph']
+        noise_mpp = settings['noise_mpp']
+        nr_noise_segments = settings['nr_noise_segments']
+        binsize = settings['binsize']
+        H_range = settings['H_range']
+        fit_T = settings['fit_T']
+        max_bw = settings['max_bw']
+        tlim = settings['tlim']
+        filter_std = settings['filter_std']
+        rise_offset = settings['rise_offset']
+
+        self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
+        first_sec = int(1 * sf)
+        self.data['signal'] = self.signal[0:first_sec]
+        self.data['dark_signal'] = self.dark_signal[0:first_sec]
+
+        fxx, nxx, _, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, noise_mph, noise_mpp, sw)
+        
+        Nfxx, Nxx, dark_locs, dark_photon_rate = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, noise_mph, noise_mpp, sw)
+        self.data['dark_locs'] = dark_locs
+
+        nr_threads = int(multiprocessing.cpu_count())
+        chunk_size = int(self.nr_segments // nr_threads)
+        total_processed = int(chunk_size * nr_threads)
+        files = self.light_files
+        chunks = [files[i:i + chunk_size] for i in range(0, total_processed, chunk_size)]
+        loc_offsets = np.arange(0, total_processed, chunk_size, dtype=int)
+        
+        with multiprocessing.Pool() as pool:
+            results = pool.starmap(self.multithread_peakmodel, zip(itertools.repeat(settings), chunks, loc_offsets))
+
+        pulses = np.concatenate([sublist[0] for sublist in results])
+        H = np.concatenate([sublist[1] for sublist in results])
+        sel_locs = np.concatenate([sublist[2] for sublist in results])
+        filtered_locs = np.concatenate([sublist[3] for sublist in results])
+        H_smoothed = np.concatenate([sublist[4] for sublist in results])
+        
+        self.data['pulses'] = pulses
+        self.data['sel_locs'] = sel_locs
+        self.data['filtered_locs'] = filtered_locs
+        self.data['H'] = H
+        self.data['H_smoothed'] = H_smoothed
+        
+        if H_range:
+            if isinstance(H_range, (int, float)):
+                idx_range = H_smoothed > H_range
+            elif isinstance(H_range, (tuple, list)):
+                idx_range = (H_smoothed > H_range[0]) & (H_smoothed < H_range[1])
+            else:
+                raise Exception('Please input H_range as integer or array-like')    
+        else:
+            idx_range = np.ones(len(H_smoothed), dtype=bool)
+
+        _, dark_H, _, _, dark_H_smoothed = f.peak_model(self.dark_signal, noise_mph, noise_mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)  
+
+        ## Mean pulse
+        pulses_range = pulses[idx_range, :]
+        H_range = H[idx_range]
+        mean_pulse = np.mean(pulses_range, axis=0)
+        sxx = f.psd(mean_pulse, sf*ssf)
+        
+        ## Determine some pulse statistics
+        nr_sel_pulses = len(sel_locs)
+        if nr_sel_pulses == 0:
+            raise Exception("No pulses selected")
+        nr_rej_pulses = len(filtered_locs)
+        nr_det_pulses = nr_sel_pulses + nr_rej_pulses
+        rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
+        photon_rate = nr_det_pulses / self.nr_segments
+
+        ## Optimal filtering and resolving powers
+        H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
+        mean_H_opt = np.mean(H_opt)
+        R, _, _ = f.resolving_power(H_range, binsize)
+        R_opt, pdf_y, pdf_x = f.resolving_power(H_opt, binsize)
+        R_i = 1 / np.sqrt(1 / R_opt**2 - 1 / R_sn**2)
+        
+        ## Fit lifetime
+        tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, fit_T)
+        if isinstance(fit_T, (int, float)):
+            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf)
+        elif isinstance(fit_T, (tuple, list)):
+            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf)
+        fit_x = np.arange(len(plot_x))
+        fit_y = f.exp_decay(fit_x, *popt)
+
+        ## Add data and settings to MKID object
+        self.data['mean_pulse'] = mean_pulse
+        self.data['R'] = R
+        self.data['Ropt'] = R_opt
+        self.data['Ri'] = R_i
+        self.data['Rsn'] = R_sn
+        self.data['dark_H'] = dark_H
+        self.data['dark_H_smoothed'] = dark_H_smoothed
+        self.data['idx_H_range'] = idx_range
+        self.data['Hopt'] = H_opt
+        self.data['<Hopt>'] = mean_H_opt
+        self.data['Nph'] = photon_rate
+        self.data['Nph_dark'] = dark_photon_rate
+        self.data['rej.'] = rej_perc
+        self.data['pdfx'] = pdf_x
+        self.data['pdfy'] = pdf_y
+        self.data['fxx'] = fxx
+        self.data['sxx'] = sxx
+        self.data['nxx'] = nxx
+        self.data['mean_dxx'] = mean_dxx
+        self.data['Nfxx'] = Nfxx
+        self.data['Nxx'] = Nxx
+        self.data['tqp'] = tau_qp
+        self.data['fitx'] = plot_x
+        self.data['fity'] = fit_y
+        self.data['sel_locs'] = sel_locs
+        self.data['filtered_locs'] = filtered_locs
+        self.data['dark_locs'] = dark_locs
+        self.settings = settings
+
+        ## Plot overview
+        self.plot_overview()
+
+        ## Save data
+        if save:
+            self.save(figpath)
+
+
+    def multithread_peakmodel(self, settings, chunck, loc_offset):
+        response = settings['response']
+        coord = settings['coord']
+        pw = settings['pw']
+        sw = settings['sw']
+        window = settings['window']
+        ssf = settings['ssf']
+        buffer = settings['buffer']
+        mph = settings['mph']
+        mpp = settings['mpp']
+        filter_std = settings['filter_std']
+        rise_offset = settings['rise_offset']
+
+        amp, phase = f.concat_vis(chunck)
+        signal = f.coord_transformation(response, coord, phase, amp)
+        result = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)
+        sel_locs = result[2]
+        filtered_locs = result[3]
+        if len(sel_locs) != 0: 
+            result[2][0] += loc_offset
+        if len(filtered_locs) != 0:
+            result[3][0] = loc_offset   
+        return result
 
 
     def initiate(self, settings, f, binsize=0.1, dpulse=10, plot_pulse=False, below=False):
@@ -175,7 +329,7 @@ class MKID:
         noise_mpp = settings['noise_mpp']
         nr_noise_segments = settings['nr_noise_segments']
         binsize = settings['binsize']
-        range = settings['range']
+        H_range = settings['H_range']
         fit_T = settings['fit_T']
         max_bw = settings['max_bw']
         tlim = settings['tlim']
@@ -251,13 +405,13 @@ class MKID:
             filtered_locs = self.data['filtered_locs']
             H_smoothed = self.data['H_smoothed']
         
-        if range:
-            if isinstance(range, (int, float)):
-                idx_range = H_smoothed > range
-            elif isinstance(range, (tuple, list)):
-                idx_range = (H_smoothed > range[0]) & (H_smoothed < range[1])
+        if H_range:
+            if isinstance(H_range, (int, float)):
+                idx_range = H_smoothed > H_range
+            elif isinstance(H_range, (tuple, list)):
+                idx_range = (H_smoothed > H_range[0]) & (H_smoothed < H_range[1])
             else:
-                raise Exception('Please input range as integer or array-like')    
+                raise Exception('Please input H_range as integer or array-like')    
         else:
             idx_range = np.ones(len(H_smoothed), dtype=bool)
         
@@ -480,7 +634,7 @@ class MKID:
         H_smoothed = self.data['H_smoothed']
         H = self.data['H']
         Hopt = self.data['Hopt']
-        range = self.settings['range']
+        H_range = self.settings['H_range']
         bin_min = np.amin((np.amin(H), np.amin(Hopt)))
         bin_max = np.amax((np.amax(H), np.amax(Hopt)))
         bin_edges = np.arange(bin_min, bin_max, binsize)
@@ -488,12 +642,12 @@ class MKID:
         if type=='smoothed':
             ax.hist(H_smoothed[idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
             ax.hist(H_smoothed[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5) 
-            if range:
-                if isinstance(range, (int, float)):
-                    ax.axvline(range, c='r', lw=0.5, ls='--', label='sel. range')
-                elif isinstance(range, (tuple, list)):
-                    for line in range:
-                        ax.axvline(line, c='r', lw=0.5, ls='--', label='sel. range')
+            if H_range:
+                if isinstance(H_range, (int, float)):
+                    ax.axvline(H_range, c='r', lw=0.5, ls='--', label='sel. threshold')
+                elif isinstance(H_range, (tuple, list)):
+                    for line in H_range:
+                        ax.axvline(line, c='r', lw=0.5, ls='--', label='sel. threshold')
             ax.axvline(mph, c='r', lw=0.5, label='mph')
             ax.set_title('Smoothed heights')    
         elif type=='unsmoothed':
