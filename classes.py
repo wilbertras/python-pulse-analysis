@@ -41,7 +41,8 @@ class MKID:
             self.chunckwise_peakmodel = True
         print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
         self.data['nr_segments'] = self.nr_segments
-        
+        self.data['nr_dark_segments'] = len(self.dark_files)
+
         if len(self.light_info_file) != 0:
             info = f.get_info(self.light_info_file[0])
         else:
@@ -300,12 +301,12 @@ class MKID:
         axes["D"].set_xlabel('time [$\mu$s]')
         axes["D"].set_ylabel('response')
         axes["D"].set_title('Average pulse on semilogy')
-        binedges = np.arange(np.amin(H), np.amax(H), binsize)
+        binedges = np.arange(0, np.amax(H), binsize)
         axes["E"].hist(H, bins=binedges)
         axes["E"].set_xlabel('response')
         axes["E"].set_ylabel('counts')
         axes["E"].set_title('Pulse heights')
-        binedges = np.arange(mph, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
+        binedges = np.arange(0, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
         axes["F"].hist(H_smoothed, bins=binedges, facecolor='tab:orange')
         axes["F"].axvline(mph, c='tab:red')
         axes["F"].set_xlabel('response')
@@ -494,7 +495,7 @@ class MKID:
         self.plot_timestream(axes['A'], 'light', tlim)
         self.plot_timestream(axes['B'], 'dark', tlim)
         if sw:
-            self.plot_hist(axes['C'], 'smoothed', binsize / 2)
+            self.plot_hist(axes['C'], 'smoothed', binsize * np.amax(self.data['H_smoothed'])/np.amax(self.data['H']))
         self.plot_hist(axes['D'], 'unsmoothed', binsize)
         self.plot_hist(axes['E'], 'optimal filter', binsize)
         self.plot_psds(axes['F'])
@@ -634,7 +635,7 @@ class MKID:
         H = self.data['H']
         Hopt = self.data['Hopt']
         H_range = self.settings['H_range']
-        bin_min = np.amin((np.amin(H), np.amin(Hopt)))
+        bin_min = 0
         bin_max = np.amax((np.amax(H), np.amax(Hopt)))
         bin_edges = np.arange(bin_min, bin_max, binsize)
         idx_range = self.data['idx_H_range']
@@ -645,8 +646,8 @@ class MKID:
                 if isinstance(H_range, (int, float)):
                     ax.axvline(H_range, c='r', lw=0.5, ls='--', label='sel. threshold')
                 elif isinstance(H_range, (tuple, list)):
-                    for line in H_range:
-                        ax.axvline(line, c='r', lw=0.5, ls='--', label='sel. threshold')
+                    ax.axvline(H_range[0], c='r', lw=0.5, ls='--', label='sel. threshold')
+                    ax.axvline(H_range[1], c='r', lw=0.5, ls='--')
             ax.axvline(mph, c='r', lw=0.5, label='mph')
             ax.set_title('Smoothed heights')    
         elif type=='unsmoothed':
