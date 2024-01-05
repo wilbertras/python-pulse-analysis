@@ -79,10 +79,11 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
 
-        fxx, nxx, _, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, noise_mph, noise_mpp, sw)
+        fxx, nxx, _, _, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, noise_mph, noise_mpp, sw)
         
-        Nfxx, Nxx, dark_locs, dark_photon_rate = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, noise_mph, noise_mpp, sw)
+        Nfxx, Nxx, dark_locs, dark_photon_rate, smoothed_dark_std = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, noise_mph, noise_mpp, sw)
         self.data['dark_locs'] = dark_locs
+        self.data['smoothed_dark_std'] = smoothed_dark_std
 
         nr_threads = int(multiprocessing.cpu_count())
         chunk_size = int(self.nr_segments // nr_threads)
@@ -131,7 +132,8 @@ class MKID:
         nr_rej_pulses = len(filtered_locs)
         nr_det_pulses = nr_sel_pulses + nr_rej_pulses
         rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
-        photon_rate = nr_det_pulses / self.nr_segments
+        photon_rate = nr_sel_pulses / self.nr_segments
+        photon_rate_range = len(H_range) / self.nr_segments
 
         ## Optimal filtering and resolving powers
         H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
@@ -161,6 +163,7 @@ class MKID:
         self.data['Hopt'] = H_opt
         self.data['<Hopt>'] = mean_H_opt
         self.data['Nph'] = photon_rate
+        self.data['Nph_range'] = photon_rate_range
         self.data['Nph_dark'] = dark_photon_rate
         self.data['rej.'] = rej_perc
         self.data['pdfx'] = pdf_x
@@ -306,7 +309,7 @@ class MKID:
         axes["E"].set_xlabel('response')
         axes["E"].set_ylabel('counts')
         axes["E"].set_title('Pulse heights')
-        binedges = np.arange(0, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
+        binedges = np.arange(mph, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
         axes["F"].hist(H_smoothed, bins=binedges, facecolor='tab:orange')
         axes["F"].axvline(mph, c='tab:red')
         axes["F"].set_xlabel('response')
@@ -341,10 +344,11 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
 
-        fxx, nxx, _, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, noise_mph, noise_mpp, sw)
+        fxx, nxx, _, _, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, noise_mph, noise_mpp, sw)
         
-        Nfxx, Nxx, dark_locs, dark_photon_rate = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, noise_mph, noise_mpp, sw)
+        Nfxx, Nxx, dark_locs, dark_photon_rate, smoothed_dark_std = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, noise_mph, noise_mpp, sw)
         self.data['dark_locs'] = dark_locs
+        self.data['smoothed_dark_std'] = smoothed_dark_std
 
         if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
             if self.chunckwise_peakmodel:
@@ -431,6 +435,7 @@ class MKID:
         nr_det_pulses = nr_sel_pulses + nr_rej_pulses
         rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
         photon_rate = nr_det_pulses / self.nr_segments
+        photon_rate_range = len(H_range) / self.nr_segments
 
         ## Optimal filtering and resolving powers
         H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
@@ -460,6 +465,7 @@ class MKID:
         self.data['Hopt'] = H_opt
         self.data['<Hopt>'] = mean_H_opt
         self.data['Nph'] = photon_rate
+        self.data['Nph_range'] = photon_rate_range
         self.data['Nph_dark'] = dark_photon_rate
         self.data['rej.'] = rej_perc
         self.data['pdfx'] = pdf_x
@@ -490,19 +496,21 @@ class MKID:
         sw = self.settings['sw']
         tlim = self.settings['tlim']
         binsize = self.settings['binsize']
-        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIF;JJJJ", layout='constrained', figsize=(12, 8))
+        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(12, 8))
         fig.suptitle('Overview: %s' % (self.data['name']))
         self.plot_timestream(axes['A'], 'light', tlim)
         self.plot_timestream(axes['B'], 'dark', tlim)
         if sw:
-            self.plot_hist(axes['C'], 'smoothed', binsize * np.amax(self.data['H_smoothed'])/np.amax(self.data['H']))
-        self.plot_hist(axes['D'], 'unsmoothed', binsize)
-        self.plot_hist(axes['E'], 'optimal filter', binsize)
-        self.plot_psds(axes['F'])
+            self.plot_hist(axes['C'], 'dark smoothed', binsize)
+            self.plot_hist(axes['D'], 'smoothed', binsize * np.amax(self.data['H_smoothed'])/np.amax(self.data['H']))
+        self.plot_hist(axes['E'], 'unsmoothed', binsize)
+        self.plot_hist(axes['F'], 'optimal filter', binsize)
+        
+        self.plot_psds(axes['J'])
         self.plot_stacked_pulses(axes['G'])
         self.plot_mean_pulse(axes['H'], type='lin')
         self.plot_mean_pulse(axes['I'], type='log')
-        self.plot_table(axes['J'])
+        self.plot_table(axes['K'])
 
 
     def plot_timestream(self, ax, type, tlim):
@@ -559,7 +567,7 @@ class MKID:
         nr_pulses = pulses.shape[0]
         len_pulses = pulses.shape[-1]
         t = np.linspace(0, pw-1, len_pulses)
-        nr2plot = 1000
+        nr2plot = 100
         if nr2plot > nr_pulses:
             every = 1
         else:
@@ -615,13 +623,13 @@ class MKID:
         
 
     def plot_table(self, ax):
-        table_results = ['T', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'tqp']
-        table_formats = ['%.1f', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.f']
-        results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]]
-        
+        table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph_range', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'tqp']
+        col_labels = ['$T$ [k]', '$t$ [s]', '$Q$', '$Q_i$', '$Q_c$', '$N_{ph}^{dark}$ [cps]', '$N_{ph}^{sel}$\n[cps]', 'rej. [%]', '$<H_{opt}>$ [rad]', '$R$', '$R_{opt}$', '$R_i$', '$R_{sn}', '$\\tau_{qp}$ [$\\mu s$]']
+        table_formats = ['%.1f', '%d', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.f']
+        results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]] 
         the_table = ax.table(cellText=results_text,
                     rowLabels=['results'],
-                    colLabels=table_results,
+                    colLabels=col_labels,
                     loc='center')
         _ = ax.axis('off')
         the_table.auto_set_font_size(False)
@@ -631,15 +639,22 @@ class MKID:
     def plot_hist(self, ax, type, binsize):
         mph = self.settings['mph']
         noise_mph = self.settings['noise_mph']
-        H_smoothed = self.data['H_smoothed']
-        H = self.data['H']
-        Hopt = self.data['Hopt']
-        H_range = self.settings['H_range']
-        bin_min = 0
-        bin_max = np.amax((np.amax(H), np.amax(Hopt)))
-        bin_edges = np.arange(bin_min, bin_max, binsize)
         idx_range = self.data['idx_H_range']
+        H_range = self.settings['H_range']
+        if H_range:
+            if isinstance(H_range, (int, float)):
+                lim = H_range 
+            elif isinstance(H_range, (tuple, list)):
+                lim = H_range[0]
+        nr_bins = int(np.round((lim - mph) / binsize))
+        if nr_bins == 0:
+            new_binsize = binsize
+        else:
+            new_binsize = (lim-mph) / nr_bins
+            self.settings['binsize'] = new_binsize
         if type=='smoothed':
+            H_smoothed = self.data['H_smoothed']
+            bin_edges = np.arange(mph, np.amax(H_smoothed)+new_binsize, new_binsize)
             ax.hist(H_smoothed[idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
             ax.hist(H_smoothed[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5) 
             if H_range:
@@ -649,26 +664,40 @@ class MKID:
                     ax.axvline(H_range[0], c='r', lw=0.5, ls='--', label='sel. threshold')
                     ax.axvline(H_range[1], c='r', lw=0.5, ls='--')
             ax.axvline(mph, c='r', lw=0.5, label='mph')
+            bin_max = np.amax(H_smoothed)
+            ax.set_xlim([0, bin_max])
             ax.set_title('Smoothed heights')    
         elif type=='unsmoothed':
+            H = self.data['H']
+            bin_edges = np.arange(0, np.amax(H)+new_binsize, new_binsize)
             ax.hist(H[idx_range], bins=bin_edges, label='sel.', color='tab:blue', alpha=0.5)
             ax.hist(H[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
             ax.axvline(mph, c='r', lw=0.5, label='mph')
+            bin_max = np.amax(H)
+            ax.set_xlim([0, bin_max])
             ax.set_title('Unsmoothed heights')
         elif type == 'optimal filter':
+            Hopt = self.data['Hopt']
+            H = self.data['H']
             pdfx = self.data['pdfx']
             pdfy = self.data['pdfy']
+            bin_max = np.amax((np.amax(H), np.amax(Hopt)))
+            bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
             ax.hist(H[idx_range], bins=bin_edges, label='original', color='tab:blue', alpha=0.5)
             ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='opt. filter')
             ax.plot(pdfx, pdfy, c='tab:green', label='KDE')
+            ax.set_xlim([0, bin_max])
             ax.set_title('Optimal filter heights')
-        elif type == 'dark':
-            dark_H = self.data['dark_H']
-            ax.hist(dark_H, label='dark', color='tab:green', alpha=0.5)
-            ax.hist(H[idx_range], bins=bin_edges, label='light', color='tab:blue', alpha=0.5)
-            ax.axvline(noise_mph, c='r', lw=0.5)
-            ax.set_title('Dark heights')
-        ax.set_xlim([0, bin_max])   
+        elif type == 'dark smoothed':
+            dark_H_smoothed = self.data['dark_H_smoothed']
+            # H_smoothed = self.data['H_smoothed']
+            bin_edges = np.arange(noise_mph, np.amax(dark_H_smoothed)+new_binsize, new_binsize)
+            # ax.hist(H_smoothed, bins=bin_edges, label='light', color='tab:orange', alpha=0.5)
+            ax.hist(dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
+            ax.axvline(noise_mph, c='r', lw=0.5, label='mph')
+            ax.axvline(5*self.data['smoothed_dark_std'], c='r', lw=0.5, ls='-.', label='5$\\sigma_{dark}$')
+            ax.set_xlim([0, np.amax(dark_H_smoothed)])
+            ax.set_title('Dark smoothed heights')
         ax.legend()
         ax.set_xlabel('pulse height')
         ax.set_ylabel('counts')

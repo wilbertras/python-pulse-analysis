@@ -361,6 +361,9 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
     else:
         smoothed_signal = signal
 
+    # Compute std of the smoothed signal to set as a threshold for pulse detection
+    smoothed_std = np.std(smoothed_signal)
+
     # Compute the average noise PSD
     nr_good_segments = 0
     start = 0
@@ -383,7 +386,6 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
             if ssf and ssf > 1:
                 next_segment = supersample(next_segment, pw*ssf)
             freqs, sxx_segment = welch(next_segment, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True)
-            # sxx_segment = psd(next_segment, sf*ssf)
             sxx_segments += sxx_segment  # cumulatively add the PSDs of all the noise segments
             nr_good_segments += 1
             nr += 1   
@@ -392,7 +394,7 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
     sxx = sxx_segments / nr_good_segments  # compute the avarage PSD
     all_locs = all_locs.astype(int)
     photon_rate = len(all_locs) / (nr * pw / sf)
-    return freqs, sxx, all_locs, photon_rate
+    return freqs, sxx, all_locs, photon_rate, smoothed_std
 
 
 def optimal_filter(pulses, pulse_model, sf, ssf, Nxx):
