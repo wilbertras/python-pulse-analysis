@@ -340,7 +340,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed
 
 
-def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
+def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -361,14 +361,14 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
     else:
         smoothed_signal = signal
 
-    # Compute std of the smoothed signal to set as a threshold for pulse detection
-    smoothed_std = np.std(smoothed_signal)
+    # Compute std of the signal to set as a threshold for pulse detection
+    std = np.std(smoothed_signal)
+    threshold = np.round(5 * std, decimals=2)
 
     # Compute the average noise PSD
     nr_good_segments = 0
     start = 0
     nr = 0
-    all_locs = np.array([])
     while nr_good_segments < nr_req_segments:
         start = nr * pw
         stop = start + pw
@@ -377,11 +377,9 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
             break
         next_segment = signal[start:stop]
         next_smoothed_segment = smoothed_signal[start:stop]
-        locs = find_peaks(next_smoothed_segment, height=mph, prominence=mpp)[0] 
-        if len(locs)!=0:  # check whether there are pulses in the data
+        nr_outliers = np.sum(next_smoothed_segment > threshold)
+        if nr_outliers > 0:  # check whether there are pulses in the data
             nr += 1
-            locs += start
-            all_locs = np.hstack((all_locs, locs))
         else:
             if ssf and ssf > 1:
                 next_segment = supersample(next_segment, pw*ssf)
@@ -392,9 +390,7 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, mph, mpp, sw):
     if nr_good_segments == 0:
         raise Exception('No good noise segments found')
     sxx = sxx_segments / nr_good_segments  # compute the avarage PSD
-    all_locs = all_locs.astype(int)
-    photon_rate = len(all_locs) / (nr * pw / sf)
-    return freqs, sxx, all_locs, photon_rate, smoothed_std
+    return freqs, sxx, threshold
 
 
 def optimal_filter(pulses, pulse_model, sf, ssf, Nxx):

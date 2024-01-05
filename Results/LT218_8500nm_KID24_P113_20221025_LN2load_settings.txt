@@ -6,13 +6,11 @@ sw:50
 window:box
 ssf:1
 buffer:0.125
-mph:0.05
-mpp:0.05
-noise_mph:0.05
-noise_mpp:0.05
+mph:0.08
+mpp:0.08
 nr_noise_segments:100
 binsize:0.02
-H_range:0.2
+H_range:0.22
 fit_T:[50, 150]
 max_bw:10000
 tlim:[0, 1]
