@@ -8,52 +8,56 @@ import multiprocessing
 import itertools
 mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
-mpl.rcParams['font.family'] = 'serif'
-mpl.rcParams['font.serif'] = 'Times New Roman'
+# mpl.rcParams['font.family'] = 'serif'
+# mpl.rcParams['font.serif'] = 'Times New Roman'
 mpl.rcParams.update({'font.size': 10})
 mpl.rcParams["mathtext.default"] = 'rm'
 
 
 class MKID:
-    def __init__(self, LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize=40):
-        self.data = {}
-        self.data['LT'] = LT
-        self.data['wl'] = wl
-        self.data['KID'] = kid_nr
-        self.data['pread'] = pread
-        self.data['date'] = date
-        self.data['name'] = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
-        self.chunckwise_peakmodel = False
-        self.existing_peak_model = False
-        self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
-        self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
-        if len(self.dark_files) > chuncksize:
-            self.dark_files = self.dark_files[:chuncksize]
-        self.dark_amp, self.dark_phase = f.concat_vis(self.dark_files)
-            
-        self.chuncksize = chuncksize
-        self.nr_segments = len(self.light_files)
-        self.nr_dark_segments = len(self.dark_files)      
-        if self.nr_segments <= self.chuncksize:
-            self.amp, self.phase = f.concat_vis(self.light_files)
+    def __init__(self, *args, file_path=None):
+        if not args:
+            self.load_mkid(file_path)
+        elif file_path is None:
+            [LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize] = args
+            self.data = {}
+            self.data['LT'] = LT
+            self.data['wl'] = wl
+            self.data['KID'] = kid_nr
+            self.data['pread'] = pread
+            self.data['date'] = date
+            self.data['name'] = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
             self.chunckwise_peakmodel = False
-        else:
-            start = 0
-            stop = self.chuncksize
-            light_files_chunck = self.light_files[start:stop]
-            self.amp, self.phase = f.concat_vis(light_files_chunck)
-            self.chunckwise_peakmodel = True
-        print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
-        self.data['nr_segments'] = self.nr_segments
-        self.data['nr_dark_segments'] = self.nr_dark_segments
+            self.existing_peak_model = False
+            self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
+            self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
+            if len(self.dark_files) > chuncksize:
+                self.dark_files = self.dark_files[:chuncksize]
+            self.dark_amp, self.dark_phase = f.concat_vis(self.dark_files)
+                
+            self.chuncksize = chuncksize
+            self.nr_segments = len(self.light_files)
+            self.nr_dark_segments = len(self.dark_files)      
+            if self.nr_segments <= self.chuncksize:
+                self.amp, self.phase = f.concat_vis(self.light_files)
+                self.chunckwise_peakmodel = False
+            else:
+                start = 0
+                stop = self.chuncksize
+                light_files_chunck = self.light_files[start:stop]
+                self.amp, self.phase = f.concat_vis(light_files_chunck)
+                self.chunckwise_peakmodel = True
+            print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
+            self.data['nr_segments'] = self.nr_segments
+            self.data['nr_dark_segments'] = self.nr_dark_segments
 
-        if len(self.light_info_file) != 0:
-            info = f.get_info(self.light_info_file[0])
-        else:
-            info = {'f0' : 0 , 'Q' : 0, 'Qc' : 0, 'Qi' : 0, 'S21_min' : 0, 'fs' : 0, 'T' : 0}
-            print('No info file obtained')
-        for x in info:
-            self.data[x] = info[x]
+            if len(self.light_info_file) != 0:
+                info = f.get_info(self.light_info_file[0])
+            else:
+                info = {'f0' : 0 , 'Q' : 0, 'Qc' : 0, 'Qi' : 0, 'S21_min' : 0, 'fs' : 0, 'T' : 0}
+                print('No info file obtained')
+            for x in info:
+                self.data[x] = info[x]
 
 
     def multithread_overview(self, settings, f, redo_peak_model=False, save=False, figpath=''):
@@ -182,7 +186,7 @@ class MKID:
         self.data['sel_locs'] = sel_locs
         self.data['filtered_locs'] = filtered_locs
         self.data['dark_locs'] = dark_locs
-        self.settings = settings
+        self.data['settings'] = settings
 
         ## Plot overview
         self.plot_overview()
@@ -217,107 +221,7 @@ class MKID:
         return result
 
 
-    def initiate(self, settings, f, binsize=0.1, dpulse=10, plot_pulse=False, below=False):
-        sf = settings['sf']
-        response = settings['response']
-        coord = settings['coord']
-        pw = settings['pw']
-        sw = settings['sw']
-        window = settings['window']
-        ssf = settings['ssf']
-        buffer = settings['buffer']
-        mph = settings['mph']
-        mpp = settings['mpp']
-        tlim = settings['tlim']
-        filter_std = settings['filter_std']
-        rise_offset = settings['rise_offset']
-
-        if ssf and ssf > 1:
-            pass
-        else:
-            ssf = 1
-
-        self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
-        
-        pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse, below)    
-
-        t_idx = np.arange(int(tlim[0]*sf), int(tlim[1]*sf), 1)
-        ylim = [-0.5, np.ceil(np.amax(self.signal[t_idx]))]
-        xlim = [0, pw]
-        t = np.linspace(tlim[0], tlim[1], len(t_idx))
-        
-        fig, axes = plt.subplot_mosaic("AABB;FECD", layout='constrained', figsize=(12, 6))
-        fig.suptitle('Overview: %s' % (self.data['name']))
-        axes["A"].plot(t, self.signal[t_idx], linewidth=0.5)  
-        axes["A"].hlines(mph, *tlim, color='tab:red', lw=0.5)
-        axes["A"].set_ylim(ylim)
-        axes["A"].set_xlim(tlim)
-        axes["A"].set_xlabel('$\it{t}$ $[s]$')
-        axes["A"].set_ylabel('$response$')
-        axes["A"].set_title('Light')
-        axes["B"].plot(t, self.dark_signal[t_idx], linewidth=0.5)
-        axes["B"].hlines(mph, *tlim, color='tab:red', lw=0.5)
-        axes["B"].set_ylim(ylim)
-        axes["B"].set_xlim(tlim)
-        axes["B"].set_xlabel('$\it{t}$ $[s]$')
-        axes["B"].set_ylabel('$response$')
-        axes["B"].set_title('Dark')
-        
-        if sw:  
-            kernel = f.get_window(window, pw, sw)
-            smoothed_signal = np.convolve(self.signal, kernel, mode='same')
-            smoothed_dark_signal = np.convolve(self.dark_signal, kernel, mode='same')
-            axes["A"].plot(t, smoothed_signal[t_idx], lw=0.5)
-            axes["B"].plot(t, smoothed_dark_signal[t_idx], lw=0.5)
-        else:
-            smoothed_dark_signal = self.dark_signal
-        
-        plot_sel_idx = (sel_locs > tlim[0]*sf) & (sel_locs < tlim[1]*sf)
-        plot_sel_locs = sel_locs[plot_sel_idx]
-        plot_sel_H = H[plot_sel_idx]
-        axes["A"].scatter(plot_sel_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5)
-        if len(filtered_locs) != 0:
-            plot_filtered_idx = (filtered_locs > tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
-            plot_filtered_locs = filtered_locs[plot_filtered_idx]
-            axes["A"].scatter(plot_filtered_locs / sf, self.signal[plot_filtered_locs], marker='v', c='None', edgecolors='tab:red', lw=0.5)
-        
-        dark_locs, props = find_peaks(smoothed_dark_signal, height=mph, prominence=mpp)
-        noise_heights = props['peak_heights']
-        if len(dark_locs) != 0:
-            plot_noise_idx = (dark_locs > tlim[0]*sf) & (dark_locs < tlim[1]*sf)
-            plot_dark_locs = dark_locs[plot_noise_idx]
-            plot_noise_heights = noise_heights[plot_noise_idx]
-            axes["B"].scatter(plot_dark_locs / sf, plot_noise_heights, marker='v', c='None', edgecolors='tab:red', lw=0.5)
-        
-        t = np.linspace(0, pw-1, pw*ssf)
-        axes["C"].plot(t, pulses[::dpulse, :].T, lw=0.25)
-        axes["C"].set_ylim(ylim)
-        axes["C"].set_xlim(xlim)
-        axes["C"].set_xlabel('$\it{t}$ $[\mu s]$')
-        axes["C"].set_ylabel('$response$')
-        axes["C"].set_title('Overlayed pulses')
-
-        ylim = [1e-4, 3]
-        axes["D"].semilogy(t, np.mean(pulses, axis=0))
-        axes["D"].set_ylim(ylim)
-        axes["D"].set_xlim(xlim)
-        axes["D"].set_xlabel('$\it{t}$ $[\mu s]$')
-        axes["D"].set_ylabel('$response$')
-        axes["D"].set_title('Average pulse on semilogy')
-        binedges = np.arange(0, np.amax(H), binsize)
-        axes["E"].hist(H, bins=binedges)
-        axes["E"].set_xlabel('$response$')
-        axes["E"].set_ylabel('$counts$')
-        axes["E"].set_title('Pulse heights ')
-        binedges = np.arange(mph, np.amax(H_smoothed), binsize*np.amax(H_smoothed)/np.amax(H))
-        axes["F"].hist(H_smoothed, bins=binedges, facecolor='tab:orange')
-        axes["F"].axvline(mph, c='tab:red')
-        axes["F"].set_xlabel('$response$')
-        axes["F"].set_ylabel('$counts$')
-        axes["F"].set_title('Smoothed pulse heights')
-
-
-    def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, save=False, figpath=''):
+    def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
         self.settings = settings
         sf = settings['sf']
         response = settings['response']
@@ -363,6 +267,7 @@ class MKID:
                 sel_locs = []
                 filtered_locs = []
                 H_smoothed = []
+
                 if max_chuncks:
                     self.nr_segments = max_chuncks * chunck
                 while stop <= self.nr_segments:
@@ -374,7 +279,12 @@ class MKID:
 
                     signal = f.coord_transformation(response, coord, phase, amp)
 
-                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)
+                    if plot_pulses and start==0:
+                        pass
+                    else:
+                        plot_pulses = False
+
+                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)
                     
                     if len(sel_locs_chunck) != 0:
                         sel_locs_chunck += int(start * sf)
@@ -399,7 +309,7 @@ class MKID:
                 filtered_locs = np.concatenate(filtered_locs)
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
             self.data['pulses'] = pulses
             self.data['sel_locs'] = sel_locs
             self.data['filtered_locs'] = filtered_locs
@@ -489,7 +399,7 @@ class MKID:
         self.data['sel_locs'] = sel_locs
         self.data['filtered_locs'] = filtered_locs
         self.data['dark_locs'] = dark_locs
-        self.settings = settings
+        self.data['settings'] = settings
 
         ## Plot overview
         self.plot_overview()
@@ -520,7 +430,7 @@ class MKID:
         self.plot_table(axes['K'])
 
 
-    def plot_timestream(self, ax, type, tlim):
+    def plot_timestream(self, ax, type, tlim=(0, 1)):
         sf = self.settings['sf']
         pw = self.settings['pw']
         mph = self.settings['mph']
@@ -529,15 +439,16 @@ class MKID:
         window = self.settings['window']
 
         if type == 'light':
-            signal = self.signal
+            signal = self.data['signal']
             locs = self.data['sel_locs']
             filtered_locs = self.data['filtered_locs']
             ax.set_title('Light timestream')
         elif type == 'dark':   
-            signal = self.dark_signal 
+            signal = self.data['dark_signal'] 
             locs = self.data['dark_locs']
             ax.set_title('Dark timestream')
-
+        if int(tlim[-1]*sf) > len(signal):
+            tlim = (0, 1)
         plot_locs_idx = (locs > tlim[0]*sf) & (locs < tlim[1]*sf)
         plot_locs = locs[plot_locs_idx]
 
@@ -566,7 +477,7 @@ class MKID:
         ax.set_xlim(tlim)
         ax.set_xlabel('$\it{t}$ $[s]$')
         ax.set_ylabel('$response$')
-        ax.legend(ncols=3)
+        ax.legend(loc='upper center', ncols=3)
 
 
     def plot_stacked_pulses(self, ax):
@@ -739,3 +650,13 @@ class MKID:
         with open(fname + '_data.txt', 'wb') as file:
             pickle.dump(self.data, file)
     
+
+    def load_mkid(self, file):
+        loaded_dict = f.load_dictionary_from_file(file)
+
+        if loaded_dict is not None:
+            print('Dictionary succesfully loaded')
+            self.data = loaded_dict
+            self.settings = loaded_dict['settings']
+        else:
+            print('Dictionary not loaded, please input correct file')

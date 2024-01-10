@@ -158,7 +158,7 @@ def supersample(signal, num, type='resample', axis=0):
         raise Exception('Please input correct supersample type: "interp1d" or "resample"')
 
 
-def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=False, every=100, below=False):
+def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=False):
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
@@ -209,7 +209,16 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         idx_halfmax = []
         H = []
         filter_diff = np.ones(len(sel_locs), dtype=bool)
-        plot_count = 0
+
+        # Setup figure for pluse plotting:
+        if plot_pulse:
+            fig, axes = plt.subplot_mosaic('abcde;efghi', figsize=(15, 5), constrained_layout=True, sharex=True, sharey=True)
+            pos = 'abcdefghi'
+            ypos = 'ae'
+            xpos = 'efghi'
+            nr_plots = len(pos)
+            plot_count = 0
+
         for i in range(len(locs_smoothed)):
             loc = locs_smoothed[i]
             left = int(loc - align_shift - buffer)
@@ -274,34 +283,24 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
 
             # Option to plot some pulses with their peaks, half maxima and rising edge indicated
             if plot_pulse:
-                if plot_count < plot_pulse:
-                    if below:
-                        if full_max < below:
-                            plot = True
-                        else:
-                            plot = False
-                    else:
-                        plot = True
-                else:
-                    plot = False 
-            else:
-                plot = False           
-            if plot:
-                fig, ax = plt.subplots()
-                t = np.linspace(0, pw, len(pulse))
-                ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', ls='--', label='smoothed pulse')
-                ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
-                ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
-                ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
-                ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
-                ax.axhline(mph, c='tab:red', lw=0.5, label='min. peak height')
-                ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
-                ax.set_xlabel('time [$\mu$s]')
-                ax.set_ylabel('response')
-                ax.set_xlim([0, pw])
-                ax.legend(ncol=2)
-                plot_count += 1
-            
+                if plot_count < nr_plots:
+                    label = pos[plot_count]
+                    ax = axes[label]
+                    t = np.linspace(0, pw, len(pulse))
+                    ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
+                    ax.plot(t, smoothed_pulse, c='tab:orange', label='smoothed pulse')
+                    ax.axhline(mph, c='tab:red', label='min. peak height')
+                    ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
+                    ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
+                    ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
+                    ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
+                    if label in xpos:
+                        ax.set_xlabel('$t$ $[\mu s]$')
+                    if label in ypos:
+                        ax.set_ylabel('$response$')
+                    ax.set_xlim([0, pw])
+                    ax['a'].legend(loc='upper right', ncol=2)
+                    plot_count += 1          
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
         H = np.array(H)
@@ -309,7 +308,6 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         locs_smoothed = locs_smoothed[filter_diff]      
         pks_smoothed = pks_smoothed[filter_diff]
         
-
         # Compute mean and std of aligned pulses
         mean_aligned_pulse = np.mean(pulses_aligned, axis=0)
         std_aligned_pulse = np.std(pulses_aligned, axis=0)
@@ -636,3 +634,15 @@ def get_kid(dir_path, lt, wl, kid, date):
         raise Exception('Multiple kids detected')
     return kid
 
+
+def load_dictionary_from_file(file_path):
+    try:
+        with open(file_path, 'rb') as file:
+            dictionary = pickle.load(file)
+            return dictionary
+    except FileNotFoundError:
+        print(f"File '{file_path}' not found.")
+        return None
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
