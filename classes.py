@@ -48,8 +48,6 @@ class MKID:
                 self.amp, self.phase = f.concat_vis(light_files_chunck)
                 self.chunckwise_peakmodel = True
             print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
-            self.data['nr_segments'] = self.nr_segments
-            self.data['nr_dark_segments'] = self.nr_dark_segments
 
             if len(self.light_info_file) != 0:
                 info = f.get_info(self.light_info_file[0])
@@ -270,6 +268,7 @@ class MKID:
 
                 if max_chuncks:
                     self.nr_segments = max_chuncks * chunck
+
                 while stop <= self.nr_segments:
                     light_files_chunck = self.light_files[start:stop]
                     if start == 0:
@@ -309,7 +308,7 @@ class MKID:
                 filtered_locs = np.concatenate(filtered_locs)
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.self(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
             self.data['pulses'] = pulses
             self.data['sel_locs'] = sel_locs
             self.data['filtered_locs'] = filtered_locs
@@ -399,6 +398,8 @@ class MKID:
         self.data['sel_locs'] = sel_locs
         self.data['filtered_locs'] = filtered_locs
         self.data['dark_locs'] = dark_locs
+        self.data['nr_segments'] = self.nr_segments
+        self.data['nr_dark_segments'] = self.nr_dark_segments
         self.data['settings'] = settings
 
         ## Plot overview
@@ -413,7 +414,7 @@ class MKID:
         sw = self.settings['sw']
         tlim = self.settings['tlim']
         binsize = self.settings['binsize']
-        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(12, 8))
+        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 8))
         fig.suptitle('Overview: %s' % (self.data['name']))
         self.plot_timestream(axes['A'], 'light', tlim)
         self.plot_timestream(axes['B'], 'dark', tlim)
@@ -477,7 +478,7 @@ class MKID:
         ax.set_xlim(tlim)
         ax.set_xlabel('$\it{t}$ $[s]$')
         ax.set_ylabel('$response$')
-        ax.legend(loc='upper center', ncols=3)
+        ax.legend(loc='lower center', ncols=3)
 
 
     def plot_stacked_pulses(self, ax):

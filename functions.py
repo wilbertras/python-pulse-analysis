@@ -212,10 +212,10 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
 
         # Setup figure for pluse plotting:
         if plot_pulse:
-            fig, axes = plt.subplot_mosaic('abcde;efghi', figsize=(15, 5), constrained_layout=True, sharex=True, sharey=True)
-            pos = 'abcdefghi'
-            ypos = 'ae'
-            xpos = 'efghi'
+            fig, axes = plt.subplot_mosaic('abcde;fghij', figsize=(15, 5), constrained_layout=True, sharex=True, sharey=True)
+            pos = 'abcdefghij'
+            ypos = 'af'
+            xpos = 'fghij'
             nr_plots = len(pos)
             plot_count = 0
 
@@ -299,7 +299,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                     if label in ypos:
                         ax.set_ylabel('$response$')
                     ax.set_xlim([0, pw])
-                    ax['a'].legend(loc='upper right', ncol=2)
+                    axes['a'].legend(loc='upper right', ncol=2)
                     plot_count += 1          
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
