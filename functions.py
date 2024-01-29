@@ -209,7 +209,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         idx_halfmax = []
         H = []
         filter_diff = np.ones(len(sel_locs), dtype=bool)
-
+        
         # Setup figure for pluse plotting:
         if plot_pulse:
             fig, axes = plt.subplot_mosaic('abcde;fghij', figsize=(15, 5), constrained_layout=True, sharex=True, sharey=True)
@@ -230,77 +230,83 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
             offset = np.mean(np.hstack((pulse[:buffer], pulse[-buffer:])))
             pulse -= offset
             smoothed_pulse -= offset
-
-            # Supersample the peak
-            if ssf and ssf > 1:
-                pulse = supersample(pulse, buffer_len * ssf)
-                smoothed_pulse = supersample(smoothed_pulse, buffer_len * ssf)
-            else: 
-                ssf = 1
-            
-            smoothed_loc = (buffer+align_shift) * ssf   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
             smoothed_peak = pks_smoothed[i]
-            len_pulse = int(buffer_len * ssf)
-            unsmoothed_height = pulse[smoothed_loc]
 
-            if unsmoothed_height <= smoothed_peak:
-                min_height = smoothed_peak
+            if smoothed_peak - offset < mph: 
+                filter_diff[i] = False          # this lets the mph effectively move with the offset. 
             else:
-                min_height = unsmoothed_height
+                # Supersample the peak
+                if ssf and ssf > 1:
+                    pulse = supersample(pulse, buffer_len * ssf)
+                    smoothed_pulse = supersample(smoothed_pulse, buffer_len * ssf)
+                else: 
+                    ssf = 1
+                
+                smoothed_loc = (buffer+align_shift) * ssf   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
+                len_pulse = int(buffer_len * ssf)
+                unsmoothed_height = pulse[smoothed_loc]
 
-            # Find non-smoothed peak closest to smoothed peak
-            locs_right, props_right = find_peaks(pulse[smoothed_loc:], height=min_height, prominence=0) # Find peaks to the right of smoothed peak with at minimal height the value at the smoothed peak
-            if len(locs_right) != 0:
-                idx_max_right = smoothed_loc + locs_right[0]
-                idx_max = idx_max_right
-                full_max = props_right['peak_heights'][0]
-            else:
-                locs_left, props_left = find_peaks(pulse[:smoothed_loc], height=min_height, prominence=0) # Find peaks to the right of smoothed peak with at minimal height the value at the smoothed peak
-                if len(locs_left) != 0:
-                    idx_max_left = locs_left[-1]
-                    idx_max = idx_max_left
-                    full_max = props_left['peak_heights'][0]   
+                if unsmoothed_height <= smoothed_peak:
+                    min_height = smoothed_peak
+                else:
+                    min_height = unsmoothed_height
+
+                # Find non-smoothed peak closest to smoothed peak
+                locs_right, props_right = find_peaks(pulse[smoothed_loc-1:], height=min_height, prominence=0) # Find peaks to the right of smoothed peak with at minimal height the value at the smoothed peak
+                if len(locs_right) != 0:
+                    idx_max_right = smoothed_loc-1 + locs_right[0]
+                    idx_max = idx_max_right
+                    full_max = props_right['peak_heights'][0]
+                else:
+                    locs_left, props_left = find_peaks(pulse[:smoothed_loc+1], height=min_height, prominence=0) # Find peaks to the right of smoothed peak with at minimal height the value at the smoothed peak
+                    if len(locs_left) != 0:
+                        idx_max_left = locs_left[-1]
+                        idx_max = idx_max_left
+                        full_max = props_left['peak_heights'][0]   
+                    else:
+                        filter_diff[i] = False
+                        print('no left locs')
+                        continue
+                sel_locs[i] = left + idx_max
+
+                # Align pulses on rising edge   
+                half_max = full_max / 2
+                rising_edge = idx_max - np.argmax(pulse[-(len_pulse - idx_max)::-1] < half_max) # Find rising edge as the first value closest to half the maximum starting from the peak
+                if rising_edge > align_shift: # Check
+                    shift_start = int(rising_edge - align_shift*ssf)  # Start cut at align_shift before rising edge
+                    shift_end = int(shift_start + pw*ssf)  # End cut at pulsewindow after rising edge
+                    aligned_pulse = pulse[shift_start:shift_end]
+                    if len(aligned_pulse) == pw*ssf:
+                        pulses_aligned.append(aligned_pulse)
+                        idx_halfmax.append(rising_edge)
+                        H.append(full_max) 
+                    else:
+                        filter_diff[i] = False
+                        print('len pulse nog pw*ssf')
                 else:
                     filter_diff[i] = False
-                    continue
-            sel_locs[i] = left + idx_max
+                    print('rising edge< align shift')
 
-            # Align pulses on rising edge   
-            half_max = full_max / 2
-            rising_edge = idx_max - np.argmax(pulse[-(len_pulse - idx_max)::-1] < half_max) # Find rising edge as the first value closest to half the maximum starting from the peak
-            if rising_edge > align_shift: # Check
-                shift_start = int(rising_edge - align_shift*ssf)  # Start cut at align_shift before rising edge
-                shift_end = int(shift_start + pw*ssf)  # End cut at pulsewindow after rising edge
-                aligned_pulse = pulse[shift_start:shift_end]
-                if len(aligned_pulse) == pw*ssf:
-                    pulses_aligned.append(aligned_pulse)
-                    idx_halfmax.append(rising_edge)
-                    H.append(full_max) 
-                else:
-                    filter_diff[i] = False
-            else:
-                filter_diff[i] = False
-
-            # Option to plot some pulses with their peaks, half maxima and rising edge indicated
-            if plot_pulse:
-                if plot_count < nr_plots:
-                    label = pos[plot_count]
-                    ax = axes[label]
-                    t = np.linspace(0, pw, len(pulse))
-                    ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
-                    ax.plot(t, smoothed_pulse, c='tab:orange', label='smoothed pulse')
-                    ax.axhline(mph, c='tab:red', label='min. peak height')
-                    ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
-                    ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
-                    ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
-                    ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
-                    if label in xpos:
-                        ax.set_xlabel('$t$ $[\mu s]$')
-                    if label in ypos:
-                        ax.set_ylabel('$response$')
-                    ax.set_xlim([0, pw])
-                    axes['a'].legend(loc='upper right', ncol=2)
-                    plot_count += 1          
+                # Option to plot some pulses with their peaks, half maxima and rising edge indicated
+                if plot_pulse:
+                    if plot_count < nr_plots:
+                        label = pos[plot_count]
+                        ax = axes[label]
+                        t = np.linspace(0, pw, len(pulse))
+                        ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
+                        ax.plot(t, smoothed_pulse, c='tab:orange', label='smoothed pulse')
+                        ax.axhline(mph, c='tab:red', label='min. peak height')
+                        ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
+                        ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
+                        ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
+                        ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
+                        if label in xpos:
+                            ax.set_xlabel('$t$ $[\mu s]$')
+                        if label in ypos:
+                            ax.set_ylabel('$response$')
+                        ax.set_xlim([0, pw])
+                        axes['a'].legend(loc='upper right', ncol=2)
+                        plot_count += 1          
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
         H = np.array(H)

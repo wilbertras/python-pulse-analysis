@@ -8,8 +8,8 @@ import multiprocessing
 import itertools
 mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
-# mpl.rcParams['font.family'] = 'serif'
-# mpl.rcParams['font.serif'] = 'Times New Roman'
+mpl.rcParams['font.family'] = 'serif'
+mpl.rcParams['font.serif'] = 'Times New Roman'
 mpl.rcParams.update({'font.size': 10})
 mpl.rcParams["mathtext.default"] = 'rm'
 
@@ -95,6 +95,13 @@ class MKID:
         Nfxx, Nxx, _ = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw)
 
         if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
+            if max_chuncks:
+                if max_chuncks > 1:
+                    self.chunckwise_peakmodel = True
+                else:
+                    self.chunckwise_peakmodel = False
+            elif max_chuncks is None:
+                self.chunckwise_peakmodel = True
             if self.chunckwise_peakmodel:
                 start = 0
                 stop = self.chuncksize
@@ -147,7 +154,7 @@ class MKID:
                 filtered_locs = np.concatenate(filtered_locs)
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.self(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
             self.data['pulses'] = pulses
             self.data['sel_locs'] = sel_locs
             self.data['filtered_locs'] = filtered_locs
@@ -303,21 +310,24 @@ class MKID:
             ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed')
         
         if type == 'light':
-            plot_sel_H = H[plot_locs_idx]
-            ax.scatter(plot_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses')
+            if len(plot_locs_idx):
+                plot_sel_H = H[plot_locs_idx]
+                ax.scatter(plot_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses')
             plot_filtered_idx = (filtered_locs > tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
-            plot_filtered_locs = filtered_locs[plot_filtered_idx]
-            plot_filtered_H = signal[plot_filtered_locs]
-            ax.scatter(plot_filtered_locs / sf, plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses')
+            if len(plot_filtered_idx):
+                plot_filtered_locs = filtered_locs[plot_filtered_idx]
+                plot_filtered_H = signal[plot_filtered_locs]
+                ax.scatter(plot_filtered_locs / sf, plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses')
         elif type == 'dark':
-            plot_dark_H = signal[plot_locs]
-            ax.scatter(plot_locs / sf, plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5)
+            if len(plot_locs):
+                plot_dark_H = signal[plot_locs]
+                ax.scatter(plot_locs / sf, plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5)
         ax.axhline(mph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
         ax.set_ylim(ylim)
         ax.set_xlim(tlim)
         ax.set_xlabel('$\it{t}$ $[s]$')
         ax.set_ylabel('$response$')
-        ax.legend(loc='lower center', ncols=3)
+        ax.legend(loc='lower center', ncols=5)
 
 
     def plot_stacked_pulses(self, ax):
@@ -454,14 +464,15 @@ class MKID:
             ax.set_xlim([0, bin_max])
             ax.set_title('Optimal filter heights')
         elif type == 'dark smoothed':
-            dark_H_smoothed = self.data['dark_H_smoothed']
-            H_smoothed = self.data['H_smoothed']
-            bin_edges = np.arange(mph, np.amax(dark_H_smoothed)+new_binsize, new_binsize)
-            ax.hist(dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
-            ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % mph)
-            ax.axvline(dark_threshold, c='r', lw=0.5, ls='-.', label='$5\/\it{\\sigma}_{dark}=%.2f$' % dark_threshold)
-            ax.set_xlim([0, np.amax(H_smoothed)])
-            ax.set_title('Dark smoothed heights')
+                dark_H_smoothed = self.data['dark_H_smoothed']
+                if len(dark_H_smoothed):
+                    H_smoothed = self.data['H_smoothed']
+                    bin_edges = np.arange(mph, np.amax(dark_H_smoothed)+new_binsize, new_binsize)
+                    ax.hist(dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
+                    ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % mph)
+                    ax.axvline(dark_threshold, c='r', lw=0.5, ls='-.', label='$5\/\it{\\sigma}_{dark}=%.2f$' % dark_threshold)
+                    ax.set_xlim([0, np.amax(H_smoothed)])
+                    ax.set_title('Dark smoothed heights')
         ax.legend()
         ax.set_xlabel('$\it{H}$')
         ax.set_ylabel('$counts$')

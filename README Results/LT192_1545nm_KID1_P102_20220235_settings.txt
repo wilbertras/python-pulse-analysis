@@ -6,13 +6,13 @@ sw:5
 window:box
 ssf:4
 buffer:0.25
-mph:0.16
-mpp:0.16
+mph:0.17
+mpp:0.17
 nr_noise_segments:100
 binsize:0.03
 H_range:None
 fit_T:[30, 70]
 max_bw:100000
 tlim:[0, 1]
-filter_std:5
+filter_std:10
 rise_offset:0.1
