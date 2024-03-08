@@ -84,15 +84,15 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
 
-        fxx, nxx, dark_threshold = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, sw)
+        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, sw)
+
+        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw)
         self.data['dark_threshold'] = dark_threshold
         if mph == None:
             mph = dark_threshold
             mpp = mph
             self.settings['mph'] = mph
             self.settings['mpp'] = mpp
-
-        Nfxx, Nxx, _ = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw)
 
         if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
             if max_chuncks:
@@ -129,7 +129,7 @@ class MKID:
                     else:
                         plot_pulses = False
 
-                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)
+                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=plot_pulses)
                     
                     if len(sel_locs_chunck) != 0:
                         sel_locs_chunck += int(start * sf)
@@ -154,31 +154,41 @@ class MKID:
                 filtered_locs = np.concatenate(filtered_locs)
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=plot_pulses)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=plot_pulses)  
+            
+            # Filter the pulses that satisfy H_range with filter_std number of standard deviations
+            if H_range:
+                pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
+            else:
+                idx_range = np.ones(len(H_smoothed), dtype=bool)
+
+            # Save the data
             self.data['pulses'] = pulses
             self.data['sel_locs'] = sel_locs
             self.data['filtered_locs'] = filtered_locs
             self.data['H'] = H
             self.data['H_smoothed'] = H_smoothed
+            self.data['idx_range'] = idx_range
             self.existing_peak_model = True
         else:
+            # Load the data
             pulses = self.data['pulses']
-            H = self.data['H']
             sel_locs = self.data['sel_locs']
             filtered_locs = self.data['filtered_locs']
+            H = self.data['H']
             H_smoothed = self.data['H_smoothed']
         
-        if H_range:
-            if isinstance(H_range, (int, float)):
-                idx_range = H_smoothed > H_range
-            elif isinstance(H_range, (tuple, list)):
-                idx_range = (H_smoothed > H_range[0]) & (H_smoothed < H_range[1])
-            else:
-                raise Exception('Please input H_range as integer or array-like')    
-        else:
-            idx_range = np.ones(len(H_smoothed), dtype=bool)
-        
-        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset)  
+            # Filter the pulses that satisfy H_range with filter_std number of standard deviations
+            pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
+            self.data['pulses'] = pulses
+            self.data['sel_locs'] = sel_locs
+            self.data['filtered_locs'] = filtered_locs
+            self.data['H'] = H
+            self.data['H_smoothed'] = H_smoothed
+            self.data['idx_range'] = idx_range
+
+        # Get pulses in dark data
+        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset)  
         dark_locs = np.hstack((sel_dark_locs, filtered_dark_locs))
         self.data['dark_locs'] = dark_locs
 
@@ -223,7 +233,6 @@ class MKID:
         self.data['Rsn'] = R_sn
         self.data['dark_H'] = dark_H
         self.data['dark_H_smoothed'] = dark_H_smoothed
-        self.data['idx_H_range'] = idx_range
         self.data['Hopt'] = H_opt
         self.data['<Hopt>'] = mean_H_opt
         self.data['Nph'] = photon_rate
@@ -333,6 +342,8 @@ class MKID:
     def plot_stacked_pulses(self, ax):
         pw = self.settings['pw']
         pulses = self.data['pulses']
+        idx_range = self.data['idx_range']
+        pulses = pulses[idx_range]
         nr_pulses = pulses.shape[0]
         len_pulses = pulses.shape[-1]
         t = np.linspace(0, pw-1, len_pulses)
@@ -377,6 +388,7 @@ class MKID:
         mean_pulse = self.data['mean_pulse']
         fitx = self.data['fitx']
         fity = self.data['fity']
+
         t = np.linspace(0, pw-1, pw*ssf)
         if type == 'lin': 
             ax.plot(t, mean_pulse)
@@ -409,7 +421,7 @@ class MKID:
     def plot_hist(self, ax, type, binsize):
         mph = self.settings['mph']
         dark_threshold = self.data['dark_threshold']
-        idx_range = self.data['idx_H_range']
+        idx_range = self.data['idx_range']
         H_range = self.settings['H_range']
         if H_range:
             if isinstance(H_range, (int, float)):

@@ -68,10 +68,20 @@ def plot_bin(file_path):
 
 
 def concat_vis(file_list):
+    limit = -0.5 * np.pi
     amp = []
     phase = []
-    for file in file_list:
+    for i, file in enumerate(file_list):
         r, p = bin2mat(file)
+        saturated = p <= limit
+        if np.any(saturated):
+            print('WARNING: Phase response found to be larger than pi*rad from T=%d seconds' % (i))
+            fig, ax = plt.subplot_mosaic('a;b', figsize=(6, 6), sharex=True, sharey=True)
+            ax['a'].set_title('Saturated response')
+            ax['a'].plot(p, lw=.5)
+            p[saturated] += 2 * np.pi
+            ax['b'].set_title('Corrected response')
+            ax['b'].plot(p, lw=.5)
         amp.append(r)
         phase.append(p)
     amp = np.array(amp).flatten()
@@ -99,18 +109,12 @@ def smith_coord(P, R):
 
 
 def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]):
-    overshoot = -0.5 * np.pi
-    
-    if np.any(phase <= overshoot):
-        print('WARNING: Phase response found to be larger than pi*rad')
-
     dark_too = True
     if len(dark_phase) == 0:
         dark_too = False
 
-    phase[phase <= overshoot] += 2 * np.pi
-    if dark_too:
-        dark_phase[dark_phase <= overshoot] += 2 * np.pi
+    # if dark_too:
+    #     dark_phase[dark_phase <= limit] += 2 * np.pi
 
     if coord == 'smith':
         R, X = smith_coord(phase, amp)
@@ -140,6 +144,9 @@ def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]
     else:
         raise Exception('Please input a proper coordinate system ("smith" or "circle")')   
     
+
+
+
     if dark_too:
         return signal, dark_signal
     else:
@@ -158,7 +165,7 @@ def supersample(signal, num, type='resample', axis=0):
         raise Exception('Please input correct supersample type: "interp1d" or "resample"')
 
 
-def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_offset, plot_pulse=False):
+def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=False):
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
@@ -265,7 +272,6 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                         full_max = props_left['peak_heights'][0]   
                     else:
                         filter_diff[i] = False
-                        print('no left locs')
                         continue
                 sel_locs[i] = left + idx_max
 
@@ -282,10 +288,8 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
                         H.append(full_max) 
                     else:
                         filter_diff[i] = False
-                        print('len pulse nog pw*ssf')
                 else:
                     filter_diff[i] = False
-                    print('rising edge< align shift')
 
                 # Option to plot some pulses with their peaks, half maxima and rising edge indicated
                 if plot_pulse:
@@ -313,35 +317,56 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, filter_std, rise_o
         sel_locs = sel_locs[filter_diff]
         locs_smoothed = locs_smoothed[filter_diff]      
         pks_smoothed = pks_smoothed[filter_diff]
-        
-        # Compute mean and std of aligned pulses
-        mean_aligned_pulse = np.mean(pulses_aligned, axis=0)
-        std_aligned_pulse = np.std(pulses_aligned, axis=0)
-
-        # Remove outliers
-        max_aligned_pulse = mean_aligned_pulse + filter_std * std_aligned_pulse
-        min_aligned_pulse = mean_aligned_pulse - filter_std * std_aligned_pulse
-        outliers_above = np.all(np.less(pulses_aligned, max_aligned_pulse), axis=1)
-        outliers_below = np.all(np.greater(pulses_aligned, min_aligned_pulse), axis=1)
-        outliers = np.logical_and(outliers_above, outliers_below)
-        pulses_aligned = pulses_aligned[outliers, :]
-        locs_smoothed = locs_smoothed[outliers]
-        sel_locs = sel_locs[outliers]
-        pks_smoothed = pks_smoothed[outliers]
-        H = H[outliers]
-
+ 
+        # Print filtered number and percentages
         nr_pulses_aligned = np.shape(pulses_aligned)[0]
-        nr_outliers = outliers.sum()
-        perc_outliers = round(100 * (1 - nr_outliers / nr_pulses) - perc_too_close)
-
-        # Final mean and std of aligned pulses
-        mean_aligned_pulse = np.mean(pulses_aligned, axis=0)
-        std_aligned_pulse = np.std(pulses_aligned, axis=0)
+        nr_unaligned = filter_diff.sum()
+        perc_outliers = round(100 * (1 - nr_unaligned / nr_pulses) - perc_too_close)
         perc_selected = round(100 * nr_pulses_aligned / nr_pulses)
         filtered_locs = np.setdiff1d(det_locs, locs_smoothed)
-        print('N_det = %.f, N_sel = %.f (=%.f perc: -%.f perc. too close, -%.f perc. outliers)' % (nr_pulses, nr_pulses_aligned, perc_selected, perc_too_close, perc_outliers))
-
+        print('N_det = %.f, N_sel = %.f (=%.f perc: -%.f perc. too close, -%.f perc. not aligned)' % (nr_pulses, nr_pulses_aligned, perc_selected, perc_too_close, perc_outliers))
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed
+
+
+def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_range, filter_std):
+    nr_pulses = len(sel_locs)
+
+    # To ensure the filtering is only applied on the selected range select these pulses only
+    if H_range:
+        if isinstance(H_range, (int, float)):
+            idx_range = pks_smoothed > H_range
+        elif isinstance(H_range, (tuple, list)):
+            idx_range = (pks_smoothed > H_range[0]) & (pks_smoothed < H_range[1])
+        else:
+            raise Exception('Please input H_range as integer or array-like')    
+    else:
+        idx_range = np.ones(len(pks_smoothed), dtype=bool)
+    nr_pulses_range = idx_range.sum()
+
+    # Compute mean and std of aligned pulses
+    mean_aligned_pulse = np.mean(pulses_aligned[idx_range, :], axis=0)
+    std_aligned_pulse = np.std(pulses_aligned[idx_range, :], axis=0)
+
+    # Remove outliers
+    max_aligned_pulse = mean_aligned_pulse + filter_std * std_aligned_pulse
+    min_aligned_pulse = mean_aligned_pulse - filter_std * std_aligned_pulse
+    outliers_above = np.all(np.less(pulses_aligned[idx_range, :], max_aligned_pulse), axis=1)
+    outliers_below = np.all(np.greater(pulses_aligned[idx_range, :], min_aligned_pulse), axis=1)
+    outliers = np.logical_and(outliers_above, outliers_below)
+    pulses_aligned = np.vstack((pulses_aligned[~idx_range, :], pulses_aligned[idx_range][outliers, :]))
+    filtered_locs = np.hstack((filtered_locs, sel_locs[idx_range][~outliers]))
+    sel_locs = np.hstack((sel_locs[~idx_range], sel_locs[idx_range][outliers]))
+    pks_smoothed = np.hstack((pks_smoothed[~idx_range], pks_smoothed[idx_range][outliers]))
+    H = np.hstack((H[~idx_range], H[idx_range][outliers]))
+    idx_range = np.hstack((idx_range[~idx_range], idx_range[idx_range][outliers]))
+
+    # Print filtered number and percentage
+    nr_final_pulses = len(sel_locs)
+    nr_outliers = outliers.sum()
+    perc_outliers = 100*nr_outliers/nr_pulses_range
+    perc_range = 100 * nr_outliers/nr_final_pulses
+    print('N_total=%d, N_range = %d (=%d perc., %d perc. filtered in range)' % (nr_final_pulses, nr_outliers, perc_range, 100-perc_outliers))
+    return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
 def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
@@ -365,14 +390,17 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
     else:
         smoothed_signal = signal
 
-    # Compute std of the signal to set as a threshold for pulse detection
+    # Compute std of the signal, twice, to set as a threshold for pulse detection in the noise segments
     std = np.std(smoothed_signal)
     threshold = np.round(5 * std, decimals=2)
-
+    std = np.std(smoothed_signal[smoothed_signal < threshold])
+    threshold = np.round(5 * std, decimals=2)
+    
     # Compute the average noise PSD
     nr_good_segments = 0
     start = 0
     nr = 0
+    stds = 0
     while nr_good_segments < nr_req_segments:
         start = nr * pw
         stop = start + pw
@@ -385,6 +413,7 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
         if nr_outliers > 0:  # check whether there are pulses in the data
             nr += 1
         else:
+            stds += np.std(next_smoothed_segment)
             if ssf and ssf > 1:
                 next_segment = supersample(next_segment, pw*ssf)
             freqs, sxx_segment = welch(next_segment, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True)
@@ -394,6 +423,8 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
     if nr_good_segments == 0:
         raise Exception('No good noise segments found')
     sxx = sxx_segments / nr_good_segments  # compute the avarage PSD
+    std = stds / nr_good_segments  # compute the avarage std
+    threshold = np.round(5 * std, decimals=2)
     return freqs, sxx, threshold
 
 

@@ -9,8 +9,8 @@ buffer:0.25
 mph:0.17
 mpp:0.17
 nr_noise_segments:100
-binsize:0.03
-H_range:None
+binsize:0.028333333333333335
+H_range:(0, 0.6)
 fit_T:[30, 70]
 max_bw:100000
 tlim:[0, 1]
