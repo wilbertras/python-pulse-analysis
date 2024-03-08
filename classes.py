@@ -29,24 +29,27 @@ class MKID:
             self.data['name'] = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
             self.chunckwise_peakmodel = False
             self.existing_peak_model = False
-            self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
+            self.chuncksize = chuncksize
+            
             self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
             if len(self.dark_files) > chuncksize:
-                self.dark_files = self.dark_files[:chuncksize]
-            self.dark_amp, self.dark_phase = f.concat_vis(self.dark_files)
+                self.dark_files = self.dark_files[:self.chuncksize]
+            self.dark_amp, self.dark_phase, removed_dark = f.concat_vis(self.dark_files)
+            self.nr_dark_segments = len(self.dark_files) - removed_dark      
                 
-            self.chuncksize = chuncksize
+            self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
             self.nr_segments = len(self.light_files)
-            self.nr_dark_segments = len(self.dark_files)      
             if self.nr_segments <= self.chuncksize:
-                self.amp, self.phase = f.concat_vis(self.light_files)
+                self.amp, self.phase, removed_light = f.concat_vis(self.light_files)
                 self.chunckwise_peakmodel = False
             else:
                 start = 0
                 stop = self.chuncksize
                 light_files_chunck = self.light_files[start:stop]
-                self.amp, self.phase = f.concat_vis(light_files_chunck)
+                self.amp, self.phase, removed_light = f.concat_vis(light_files_chunck)
                 self.chunckwise_peakmodel = True
+            self.nr_segments -= removed_light  
+
             print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
 
             if len(self.light_info_file) != 0:
@@ -111,17 +114,16 @@ class MKID:
                 sel_locs = []
                 filtered_locs = []
                 H_smoothed = []
-
+                removed = 0
                 if max_chuncks:
                     self.nr_segments = max_chuncks * chunck
-
                 while stop <= self.nr_segments:
                     light_files_chunck = self.light_files[start:stop]
                     if start == 0:
                         amp, phase = self.amp, self.phase
                     else:
-                        amp, phase = f.concat_vis(light_files_chunck)
-
+                        amp, phase, removed_chunck = f.concat_vis(light_files_chunck)
+                        removed += removed_chunck
                     signal = f.coord_transformation(response, coord, phase, amp)
 
                     if plot_pulses and start==0:
@@ -147,7 +149,7 @@ class MKID:
                         stop = self.nr_segments + 1
                     elif stop > self.nr_segments:
                         stop = self.nr_segments
-
+                self.nr_segments -= removed
                 pulses = np.concatenate(pulses)
                 H = np.concatenate(H)
                 sel_locs = np.concatenate(sel_locs)

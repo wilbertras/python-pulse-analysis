@@ -71,22 +71,27 @@ def concat_vis(file_list):
     limit = -0.5 * np.pi
     amp = []
     phase = []
+    removed = 0
     for i, file in enumerate(file_list):
         r, p = bin2mat(file)
         saturated = p <= limit
         if np.any(saturated):
-            print('WARNING: Phase response found to be larger than pi*rad from T=%d seconds' % (i))
+            print('WARNING: Phase <= %.1f pi rad at T=%d seconds' % (limit/np.pi, i))
             fig, ax = plt.subplot_mosaic('a;b', figsize=(6, 6), sharex=True, sharey=True)
             ax['a'].set_title('Saturated response')
             ax['a'].plot(p, lw=.5)
             p[saturated] += 2 * np.pi
             ax['b'].set_title('Corrected response')
             ax['b'].plot(p, lw=.5)
-        amp.append(r)
-        phase.append(p)
+            removed += 1
+        else:
+            amp.append(r)
+            phase.append(p)
     amp = np.array(amp).flatten()
     phase = np.array(phase).flatten()
-    return amp, phase
+    if removed:
+        print('%d seconds removed' % removed)
+    return amp, phase, removed
 
 
 def smith_coord(P, R):
