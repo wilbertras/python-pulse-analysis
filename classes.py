@@ -73,6 +73,7 @@ class MKID:
 
 
     def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
+        print('----------------STARTED----------------')
         self.settings = settings
         sf = settings['sf']
         response = settings['response']
@@ -292,7 +293,7 @@ class MKID:
 
         tstop = time.time()
         telapsed = tstop - tstart
-        print('---FINISHED in %d s---' % telapsed)
+        print(print('----------------FINISHED (IN %d s)----------------') % telapsed)
 
     def plot_overview(self):
         sw = self.settings['sw']
