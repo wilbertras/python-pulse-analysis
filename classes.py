@@ -194,6 +194,7 @@ class MKID:
         else:
             # Load the data
             print('(2/3) Reloading existing peak_model')
+            print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))
             pulses = self.data['pulses']
             sel_locs = self.data['sel_locs']
             filtered_locs = self.data['filtered_locs']
@@ -287,7 +288,7 @@ class MKID:
         ## Save data
         if save:
             filename = self.save(figpath)
-            print('SAVED MKID OBJECT: %s' % filename)
+            print('SAVED MKID OBJECT: "%s"' % filename)
 
         tstop = time.time()
         telapsed = tstop - tstart
@@ -297,7 +298,7 @@ class MKID:
         sw = self.settings['sw']
         tlim = self.settings['tlim']
         binsize = self.settings['binsize']
-        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 8))
+        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 10))
         fig.suptitle('Overview: %s' % (self.data['name']))
         self.plot_timestream(axes['A'], 'light', tlim)
         self.plot_timestream(axes['B'], 'dark', tlim)

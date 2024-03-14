@@ -3,14 +3,14 @@ coord:smith
 response:X
 pw:64
 sw:10
-window:exp
+window:box
 ssf:4
 buffer:0.25
 mph:0.14
 mpp:0.14
 nr_noise_segments:100
 binsize:0.028000000000000004
-H_range:(0, 0.6)
+H_range:(0, 0.5)
 fit_T:[30, 70]
 max_bw:100000
 tlim:[0, 1]
