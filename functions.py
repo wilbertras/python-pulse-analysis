@@ -184,8 +184,8 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
     '''
     # Smooth timestream data for peak finding
     if sw:    
-        kernel, mode = get_window(window, sw)
-        smoothed_signal = fftconvolve(signal, kernel, mode=mode)
+        kernel = get_window(window, sw)
+        smoothed_signal = fftconvolve(signal, kernel, mode='valid')
     else:
         smoothed_signal = signal
 
@@ -382,7 +382,7 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     nr_pulses_range_filtered = nr_pulses_range-nr_filtered
     perc_range = 100 * nr_pulses_range/nr_pulses
     perc_range_filtered = 100*nr_pulses_range_filtered/nr_pulses
-    print('    N_range=%d/%d (=%.f%%:%.f%% out of range + %.1f%% filtered)' % (nr_pulses_range_filtered, nr_pulses, perc_range_filtered, 100 - perc_range, perc_filtered))
+    print('    N_range = %d/%d (=%.f%%: %.f%% out of range + %.1f%% filtered)' % (nr_pulses_range_filtered, nr_pulses, perc_range_filtered, 100 - perc_range, perc_filtered))
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
@@ -402,8 +402,8 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw, window):
 
     # Smooth timestream for better pulse detection
     if sw:    
-        kernel, mode = get_window(window, sw)
-        smoothed_signal = fftconvolve(signal, kernel, mode=mode)
+        kernel = get_window(window, sw)
+        smoothed_signal = fftconvolve(signal, kernel, mode='valid')
     else:
         smoothed_signal = signal
 
@@ -623,18 +623,14 @@ def one_over_t(x, a, b, c):
 
 def get_window(type, tau):
     if type == 'box':
-        M = int(tau/2)
+        M = int(tau)
         y = windows.boxcar(M, sym=False)
         y /= np.sum(y)
-        mode = 'valid'
     if type == 'exp':
-        # ratio = 0.1                   
-        # M = int(-tau*np.log(ratio))  # this can be used to change the length of the exp window according with a certain ratio of the exponent being left over at the end of the window. However, note that the smoothing pulses will not align anymore if the window length is different from the boxcar windowlength.               
-        M = int(tau/2)
+        M = int(tau)
         y = windows.exponential(M, center=0, tau=tau, sym=False) 
         y /= np.sum(y)
-        mode = 'valid'
-    return y, mode
+    return y
 
 
 def get_kid(dir_path, lt, wl, kid, date):

@@ -40,7 +40,7 @@ class MKID:
                 self.nr_dark_segments = nr_dark_loaded     
             self.dark_amp, self.dark_phase, removed_dark = f.concat_vis(self.dark_files, discard=self.discard_saturated)
             self.nr_dark_segments -= removed_dark      
-            print('%d dark files obtained (%d/%d loaded, %d discarded)' % (self.nr_dark_segments, self.nr_dark_segments+removed_dark, nr_dark_loaded, removed_dark))    
+            print('%d/%d dark files loaded (%d found, %d discarded)' % (self.nr_dark_segments, self.nr_dark_segments+removed_dark, nr_dark_loaded, removed_dark))    
             if self.nr_dark_segments == 0:
                 raise ValueError('No dark files obtained')
             
@@ -57,7 +57,7 @@ class MKID:
                 self.amp, self.phase, removed_light = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
                 self.nr_segments = self.chuncksize - removed_light
                 self.chunckwise_peakmodel = True
-            print('%d light files obtained (%d/%d loaded, %d discarded)' % (self.nr_segments, self.nr_segments+removed_light, self.nr_light_loaded, removed_light))    
+            print('%d/%d light files loaded (%d found, %d discarded)' % (self.nr_segments, self.nr_segments+removed_light, self.nr_light_loaded, removed_light))    
             if self.nr_segments == 0:
                 raise ValueError('No ligth files obtained')
             
@@ -343,7 +343,7 @@ class MKID:
 
         ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream', zorder=1)  
         if sw:  
-            kernel, mode = f.get_window(window, sw)
+            kernel = f.get_window(window, sw)
             smoothed_signal = np.convolve(signal, kernel, mode='same')
             ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed', zorder=2)
         
