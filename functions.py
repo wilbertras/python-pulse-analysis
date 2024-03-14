@@ -4,7 +4,7 @@ import re
 from copy import copy
 import pickle
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks, welch, resample, windows
+from scipy.signal import find_peaks, welch, resample, windows, fftconvolve
 from scipy.fft import fft
 from scipy.stats import gaussian_kde
 from scipy.optimize import curve_fit
@@ -67,30 +67,38 @@ def plot_bin(file_path):
     ax.set_xlim(time[0], time[-1])
 
 
-def concat_vis(file_list):
+def concat_vis(file_list, discard=True):
     limit = -0.5 * np.pi
     amp = []
     phase = []
     removed = 0
+    saturated_Ts = []
     for i, file in enumerate(file_list):
         r, p = bin2mat(file)
         saturated = p <= limit
         if np.any(saturated):
-            print('WARNING: Phase <= %.1f pi rad at T=%d seconds' % (limit/np.pi, i))
-            fig, ax = plt.subplot_mosaic('a;b', figsize=(6, 6), sharex=True, sharey=True)
-            ax['a'].set_title('Saturated response')
-            ax['a'].plot(p, lw=.5)
-            p[saturated] += 2 * np.pi
-            ax['b'].set_title('Corrected response')
-            ax['b'].plot(p, lw=.5)
-            removed += 1
+            saturated_Ts.append(i)
+            if discard:
+                removed += 1
+                append = 0
+                fig, ax = plt.subplot_mosaic('ab', figsize=(6, 3), sharex=True, sharey=True, constrained_layout=True)
+                ax['a'].set_title('phase')
+                ax['a'].plot(p, lw=.5)
+                # p[saturated] += 2 * np.pi
+                ax['b'].set_title('amplitude')
+                ax['b'].plot(r, lw=.5)
+            else: 
+                append = 1
         else:
+            append = 1
+        if append:
             amp.append(r)
             phase.append(p)
     amp = np.array(amp).flatten()
     phase = np.array(phase).flatten()
-    if removed:
-        print('%d seconds removed' % removed)
+    nr_saturated = len(saturated_Ts)
+    if nr_saturated:
+        print('     WARNING: %d files found with phase <= %.1f pi rad (at T=' % (nr_saturated, limit/np.pi), saturated_Ts, 's)')
     return amp, phase, removed
 
 
@@ -176,8 +184,8 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
     '''
     # Smooth timestream data for peak finding
     if sw:    
-        kernel = get_window(window, pw, sw)
-        smoothed_signal = np.convolve(signal, kernel, mode='valid')
+        kernel, mode = get_window(window, sw)
+        smoothed_signal = fftconvolve(signal, kernel, mode=mode)
     else:
         smoothed_signal = signal
 
@@ -302,19 +310,21 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
                         label = pos[plot_count]
                         ax = axes[label]
                         t = np.linspace(0, pw, len(pulse))
-                        ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse')
-                        ax.plot(t, smoothed_pulse, c='tab:orange', label='smoothed pulse')
-                        ax.axhline(mph, c='tab:red', label='min. peak height')
-                        ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset')
-                        ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak')
-                        ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak')
-                        ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge')
+                        ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse', zorder=0)
+                        ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', label='smoothed pulse', zorder=1)
+                        ax.axhline(mph, lw=0.5, c='tab:red', label='min. peak height', zorder=2)
+                        ax.axhline(offset, c='tab:purple', lw=0.5, label='drift offset', zorder=2)
+                        ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak', zorder=3)
+                        ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak', zorder=3)
+                        ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge', zorder=3)
                         if label in xpos:
                             ax.set_xlabel('$t$ $[\mu s]$')
                         if label in ypos:
                             ax.set_ylabel('$response$')
                         ax.set_xlim([0, pw])
-                        axes['a'].legend(loc='upper right', ncol=2)
+                        # axes['a'].legend(loc='upper right', ncol=2)
+                        axes['a'].legend(bbox_to_anchor=(0., 1.06, 5., .06), loc='upper left',
+                        ncols=7, mode="expand", borderaxespad=0., fontsize=9)
                         plot_count += 1          
         pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_halfmax = np.array(idx_halfmax)
@@ -329,7 +339,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
         perc_outliers = round(100 * (1 - nr_unaligned / nr_pulses) - perc_too_close)
         perc_selected = round(100 * nr_pulses_aligned / nr_pulses)
         filtered_locs = np.setdiff1d(det_locs, locs_smoothed)
-        print('N_det = %.f, N_sel = %.f (=%.f perc: -%.f perc. too close, -%.f perc. not aligned)' % (nr_pulses, nr_pulses_aligned, perc_selected, perc_too_close, perc_outliers))
+        print('     N_sel = %d/%d (=%.f%%: %.f%% too close + %.f%% not aligned)' % (nr_pulses_aligned, nr_pulses, perc_selected, perc_too_close, perc_outliers))
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed
 
 
@@ -339,9 +349,9 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     # To ensure the filtering is only applied on the selected range select these pulses only
     if H_range:
         if isinstance(H_range, (int, float)):
-            idx_range = pks_smoothed > H_range
+            idx_range = pks_smoothed >= H_range
         elif isinstance(H_range, (tuple, list)):
-            idx_range = (pks_smoothed > H_range[0]) & (pks_smoothed < H_range[1])
+            idx_range = (pks_smoothed >= H_range[0]) & (pks_smoothed < H_range[1])
         else:
             raise Exception('Please input H_range as integer or array-like')    
     else:
@@ -367,14 +377,16 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
 
     # Print filtered number and percentage
     nr_final_pulses = len(sel_locs)
-    nr_outliers = outliers.sum()
-    perc_outliers = 100*nr_outliers/nr_pulses_range
-    perc_range = 100 * nr_outliers/nr_final_pulses
-    print('N_total=%d, N_range = %d (=%d perc., %d perc. filtered in range)' % (nr_final_pulses, nr_outliers, perc_range, 100-perc_outliers))
+    nr_filtered = nr_pulses - nr_final_pulses
+    perc_filtered = 100 * nr_filtered/nr_pulses
+    nr_pulses_range_filtered = nr_pulses_range-nr_filtered
+    perc_range = 100 * nr_pulses_range/nr_pulses
+    perc_range_filtered = 100*nr_pulses_range_filtered/nr_pulses
+    print('    N_range=%d/%d (=%.f%%:%.f%% out of range + %.1f%% filtered)' % (nr_pulses_range_filtered, nr_pulses, perc_range_filtered, 100 - perc_range, perc_filtered))
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
-def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
+def noise_model(signal, pw, sf, ssf, nr_req_segments, sw, window):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -390,8 +402,8 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
 
     # Smooth timestream for better pulse detection
     if sw:    
-        kernel = np.ones(sw) / sw
-        smoothed_signal = np.convolve(signal, kernel, mode='valid')
+        kernel, mode = get_window(window, sw)
+        smoothed_signal = fftconvolve(signal, kernel, mode=mode)
     else:
         smoothed_signal = signal
 
@@ -410,7 +422,7 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw):
         start = nr * pw
         stop = start + pw
         if stop >= signal_length:  # ensure that the next segment does not run out of the available data 
-            print('Not enough noise segments found with max_bw=%d (=%d)' % (pw, nr_good_segments))
+            print('     WARNING: only %d/%d noise segments obtained with max_bw=%d' % (nr_good_segments, nr_req_segments, pw))
             break
         next_segment = signal[start:stop]
         next_smoothed_segment = smoothed_signal[start:stop]
@@ -609,52 +621,20 @@ def one_over_t(x, a, b, c):
     return a / ((1 + c) * np.exp(b * x) - 1)
 
 
-def get_window(type, M, tau):
-    ratio = 0.01
+def get_window(type, tau):
     if type == 'box':
-        M = tau
-        y = windows.boxcar(M) / M
+        M = int(tau/2)
+        y = windows.boxcar(M, sym=False)
+        y /= np.sum(y)
+        mode = 'valid'
     if type == 'exp':
-        M = int(-tau*np.log(ratio))
-        x = np.linspace(0, M-1, M)
-        y = exp_decay(x, 1, 1 / tau)
+        # ratio = 0.1                   
+        # M = int(-tau*np.log(ratio))  # this can be used to change the length of the exp window according with a certain ratio of the exponent being left over at the end of the window. However, note that the smoothing pulses will not align anymore if the window length is different from the boxcar windowlength.               
+        M = int(tau/2)
+        y = windows.exponential(M, center=0, tau=tau, sym=False) 
         y /= np.sum(y)
-    if type == '1/t':
-        M = int(1 / ratio - 1)
-        x = np.linspace(0, M-1, M)
-        y  = 1 / (1 + x)
-        y /= np.sum(y)
-    # fig, ax = plt.subplots()
-    # ax.set_title('Window for smoothing')
-    # ax.plot(y)
-    # ax.set_ylim([0, 1])
-    # plt.show()
-    return y
-
-
-def plot_some_pulses(mkid, dimx, dimy, save=False, ylim=None):
-    fig, axes = plt.subplots(dimx, dimy, layout='constrained', sharey=True, sharex=True)
-    fig.suptitle('Some pulses: ' + mkid.data['name'])
-    pulses = mkid.data['pulses']
-    nr_pulses = pulses.shape[0]
-    i = 0
-    for ax in axes.flatten():
-        if i < nr_pulses:
-            pulse = pulses[i, :]
-            ax.plot(pulses[i, :], lw=0.2)
-            i += 1
-        else:
-            break
-    if ylim:
-        _ = ax.set_ylim([ylim])
-    _ = ax.set_xlim([0, len(pulse)])
-    _ = fig.supxlabel('t [$\mu$s]')
-    _ = fig.supylabel('$\\theta$ [rad]')
-    if save:
-        figpath = r'C:/Users/wilbertr/OneDrive/TU Delft/PhD/Data analysis/MIR/Smith/'
-        fname = figpath + mkid.data['name']
-        plt.savefig(fname + '_pulses.png')
-        plt.savefig(fname + '_pulses.svg')
+        mode = 'valid'
+    return y, mode
 
 
 def get_kid(dir_path, lt, wl, kid, date):

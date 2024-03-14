@@ -1,11 +1,9 @@
 import functions as f
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.signal import find_peaks, welch
 import pickle
-import matplotlib as mpl
-import multiprocessing
-import itertools
+import time
 mpl.style.use('bmh')
 mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
 mpl.rcParams['font.family'] = 'serif'
@@ -15,7 +13,7 @@ mpl.rcParams["mathtext.default"] = 'rm'
 
 
 class MKID:
-    def __init__(self, *args, file_path=None):
+    def __init__(self, *args, file_path=None, discard_saturated=True):
         if not args:
             self.load_mkid(file_path)
         elif file_path is None:
@@ -30,27 +28,40 @@ class MKID:
             self.chunckwise_peakmodel = False
             self.existing_peak_model = False
             self.chuncksize = chuncksize
-            
+            self.max_chuncks = None
+            self.discard_saturated = discard_saturated
+
             self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
-            if len(self.dark_files) > chuncksize:
+            nr_dark_loaded = len(self.dark_files)
+            if nr_dark_loaded > chuncksize:
                 self.dark_files = self.dark_files[:self.chuncksize]
-            self.dark_amp, self.dark_phase, removed_dark = f.concat_vis(self.dark_files)
-            self.nr_dark_segments = len(self.dark_files) - removed_dark      
-                
+                self.nr_dark_segments = self.chuncksize
+            else:
+                self.nr_dark_segments = nr_dark_loaded     
+            self.dark_amp, self.dark_phase, removed_dark = f.concat_vis(self.dark_files, discard=self.discard_saturated)
+            self.nr_dark_segments -= removed_dark      
+            print('%d dark files obtained (%d/%d loaded, %d discarded)' % (self.nr_dark_segments, self.nr_dark_segments+removed_dark, nr_dark_loaded, removed_dark))    
+            if self.nr_dark_segments == 0:
+                raise ValueError('No dark files obtained')
+            
             self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
-            self.nr_segments = len(self.light_files)
-            if self.nr_segments <= self.chuncksize:
-                self.amp, self.phase, removed_light = f.concat_vis(self.light_files)
+            self.nr_light_loaded = len(self.light_files)
+            if self.nr_light_loaded <= self.chuncksize:
+                self.amp, self.phase, removed_light = f.concat_vis(self.light_files, discard=self.discard_saturated)
+                self.nr_segments = self.nr_light_loaded - removed_light
                 self.chunckwise_peakmodel = False
             else:
                 start = 0
                 stop = self.chuncksize
                 light_files_chunck = self.light_files[start:stop]
-                self.amp, self.phase, removed_light = f.concat_vis(light_files_chunck)
+                self.amp, self.phase, removed_light = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
+                self.nr_segments = self.chuncksize - removed_light
                 self.chunckwise_peakmodel = True
-            self.nr_segments -= removed_light  
-
-            print('%d files obtained, chunckwise peakmodel is %s with chuncksize=%d' % (self.nr_segments, self.chunckwise_peakmodel, chuncksize))
+            print('%d light files obtained (%d/%d loaded, %d discarded)' % (self.nr_segments, self.nr_segments+removed_light, self.nr_light_loaded, removed_light))    
+            if self.nr_segments == 0:
+                raise ValueError('No ligth files obtained')
+            
+            print('Chunckwise peakmodel is %s' % self.chunckwise_peakmodel)
 
             if len(self.light_info_file) != 0:
                 info = f.get_info(self.light_info_file[0])
@@ -82,14 +93,15 @@ class MKID:
         filter_std = settings['filter_std']
         rise_offset = settings['rise_offset']
 
+        tstart = time.time()
         self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
         first_sec = int(1 * sf)
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
+        print('(1/3) Constructing noise_model')
+        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, sw, window)
 
-        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, sw)
-
-        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw)
+        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw, window)
         self.data['dark_threshold'] = dark_threshold
         if mph == None:
             mph = dark_threshold
@@ -97,13 +109,15 @@ class MKID:
             self.settings['mph'] = mph
             self.settings['mpp'] = mpp
 
-        if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
-            if max_chuncks:
-                if max_chuncks > 1:
+        if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True) or self.max_chuncks != max_chuncks: 
+            print('(2/3) Constructing peak_model')
+            self.max_chuncks = max_chuncks
+            if self.max_chuncks:
+                if self.max_chuncks > 1:
                     self.chunckwise_peakmodel = True
                 else:
                     self.chunckwise_peakmodel = False
-            elif max_chuncks is None:
+            elif self.max_chuncks is None:
                 self.chunckwise_peakmodel = True
             if self.chunckwise_peakmodel:
                 start = 0
@@ -115,14 +129,17 @@ class MKID:
                 filtered_locs = []
                 H_smoothed = []
                 removed = 0
-                if max_chuncks:
-                    self.nr_segments = max_chuncks * chunck
-                while stop <= self.nr_segments:
+                if self.max_chuncks:
+                    max_files = self.max_chuncks * chunck
+                else: 
+                    max_files = self.nr_light_loaded
+                while stop <= max_files:
+                    print('   (%d/%d) light files processed:' % (stop, max_files))
                     light_files_chunck = self.light_files[start:stop]
                     if start == 0:
                         amp, phase = self.amp, self.phase
                     else:
-                        amp, phase, removed_chunck = f.concat_vis(light_files_chunck)
+                        amp, phase, removed_chunck = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
                         removed += removed_chunck
                     signal = f.coord_transformation(response, coord, phase, amp)
 
@@ -145,19 +162,21 @@ class MKID:
 
                     start = stop
                     stop += chunck
-                    if start >= self.nr_segments:
-                        stop = self.nr_segments + 1
-                    elif stop > self.nr_segments:
-                        stop = self.nr_segments
-                self.nr_segments -= removed
+                    if start >= max_files:
+                        stop = max_files + 1
+                    elif stop > max_files:
+                        stop = max_files
+                    
+                self.nr_segments = max_files - removed
                 pulses = np.concatenate(pulses)
                 H = np.concatenate(H)
                 sel_locs = np.concatenate(sel_locs)
                 filtered_locs = np.concatenate(filtered_locs)
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
+                print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))  
                 pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=plot_pulses)  
-            
+
             # Filter the pulses that satisfy H_range with filter_std number of standard deviations
             if H_range:
                 pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
@@ -174,12 +193,13 @@ class MKID:
             self.existing_peak_model = True
         else:
             # Load the data
+            print('(2/3) Reloading existing peak_model')
             pulses = self.data['pulses']
             sel_locs = self.data['sel_locs']
             filtered_locs = self.data['filtered_locs']
             H = self.data['H']
             H_smoothed = self.data['H_smoothed']
-        
+
             # Filter the pulses that satisfy H_range with filter_std number of standard deviations
             pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
             self.data['pulses'] = pulses
@@ -190,7 +210,8 @@ class MKID:
             self.data['idx_range'] = idx_range
 
         # Get pulses in dark data
-        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset)  
+        print('   (%d/%d) dark files processed:' % (self.nr_dark_segments, self.nr_dark_segments))  
+        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset)
         dark_locs = np.hstack((sel_dark_locs, filtered_dark_locs))
         self.data['dark_locs'] = dark_locs
 
@@ -203,7 +224,7 @@ class MKID:
         ## Determine some pulse statistics
         nr_sel_pulses = len(sel_locs)
         if nr_sel_pulses == 0:
-            raise Exception("No pulses selected")
+            raise Exception("   No pulses selected")
         nr_rej_pulses = len(filtered_locs)
         nr_det_pulses = nr_sel_pulses + nr_rej_pulses
         rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
@@ -212,6 +233,7 @@ class MKID:
         dark_photon_rate = len(dark_locs) / self.nr_dark_segments
 
         ## Optimal filtering and resolving powers
+        print('(3/3) Applying optimal_filter')
         H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
         R, _, _ = f.resolving_power(H_range, binsize)
@@ -264,8 +286,12 @@ class MKID:
 
         ## Save data
         if save:
-            self.save(figpath)
+            filename = self.save(figpath)
+            print('SAVED MKID OBJECT: %s' % filename)
 
+        tstop = time.time()
+        telapsed = tstop - tstart
+        print('---FINISHED in %d s---' % telapsed)
 
     def plot_overview(self):
         sw = self.settings['sw']
@@ -314,31 +340,32 @@ class MKID:
         ylim = [-0.5, np.ceil(np.amax(signal[t_idx]))]
         t = t_idx / sf
 
-        ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream')  
+        ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream', zorder=1)  
         if sw:  
-            kernel = f.get_window(window, pw, sw)
+            kernel, mode = f.get_window(window, sw)
             smoothed_signal = np.convolve(signal, kernel, mode='same')
-            ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed')
+            ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed', zorder=2)
         
         if type == 'light':
             if len(plot_locs_idx):
                 plot_sel_H = H[plot_locs_idx]
-                ax.scatter(plot_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses')
+                ax.scatter(plot_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses', zorder=4)
             plot_filtered_idx = (filtered_locs > tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
             if len(plot_filtered_idx):
                 plot_filtered_locs = filtered_locs[plot_filtered_idx]
-                plot_filtered_H = signal[plot_filtered_locs]
-                ax.scatter(plot_filtered_locs / sf, plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses')
+                plot_filtered_H = smoothed_signal[plot_filtered_locs]
+                ax.scatter(plot_filtered_locs / sf, plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses', zorder=4)
         elif type == 'dark':
             if len(plot_locs):
                 plot_dark_H = signal[plot_locs]
-                ax.scatter(plot_locs / sf, plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5)
-        ax.axhline(mph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
+                ax.scatter(plot_locs / sf, plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, zorder=4)
+        ax.axhline(mph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (mph), zorder=3)
         ax.set_ylim(ylim)
         ax.set_xlim(tlim)
         ax.set_xlabel('$\it{t}$ $[s]$')
         ax.set_ylabel('$response$')
-        ax.legend(loc='lower center', ncols=5)
+        ax.legend(bbox_to_anchor=(0., 0, 1., .102), loc='lower left',
+                      ncols=5, mode="expand", borderaxespad=0., fontsize=9)
 
 
     def plot_stacked_pulses(self, ax):
@@ -408,7 +435,7 @@ class MKID:
 
     def plot_table(self, ax):
         table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph_range', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'tqp']
-        col_labels = ['$\it{T}$ $[K]$', '$\it{t}$ $[s]$', '$\it{Q}$', '$\it{Q_i}$', '$\it{Q_c}$', '$\it{N}_{ph}^{dark}$ $[cps]$', '$\it{N}_{ph}^{sel}$ $[cps]$', 'rej. [%]', '$<\it{H}_{opt}>$ $[rad]$', '$\it{R}$', '$\it{R}_{opt}$', '$\it{R}_i$', '$\it{R}_{sn}$', '$\it{\\tau}_{qp}$ $[\mu s]$']
+        col_labels = ['$\it{T}$ $[K]$', '$\it{T}$ $[s]$', '$\it{Q}$', '$\it{Q_i}$', '$\it{Q_c}$', '$\it{N}_{ph}^{dark}$ $[cps]$', '$\it{N}_{ph}^{sel}$ $[cps]$', 'rej. [%]', '$<\it{H}_{opt}>$ $[rad]$', '$\it{R}$', '$\it{R}_{opt}$', '$\it{R}_i$', '$\it{R}_{sn}$', '$\it{\\tau}_{qp}$ $[\mu s]$']
         table_formats = ['%.1f', '%d', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.f']
         results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]] 
         the_table = ax.table(cellText=results_text,
@@ -514,6 +541,7 @@ class MKID:
                 f.write('%s:%s\n' % (key, value))
         with open(fname + '_data.txt', 'wb') as file:
             pickle.dump(self.data, file)
+        return fname + '_data.txt'
     
 
     def load_mkid(self, file):
