@@ -2,7 +2,7 @@ sf:1000000.0
 coord:smith
 response:X
 pw:64
-sw:10
+sw:5
 window:box
 ssf:4
 buffer:0.25

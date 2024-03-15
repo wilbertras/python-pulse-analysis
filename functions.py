@@ -182,6 +182,10 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
+    if ssf and ssf > 1:
+        pass
+    else:
+        ssf = 1
     # Smooth timestream data for peak finding
     if sw:    
         kernel = get_window(window, sw)
@@ -286,7 +290,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
                     else:
                         filter_diff[i] = False
                         continue
-                sel_locs[i] = left + idx_max
+                sel_locs[i] = left + int(idx_max/ssf)
 
                 # Align pulses on rising edge   
                 half_max = full_max / 2
@@ -318,7 +322,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
                         ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak', zorder=3)
                         ax.scatter(t[rising_edge], half_max, color='None', edgecolor='tab:green', marker='s', label='rising edge', zorder=3)
                         if label in xpos:
-                            ax.set_xlabel('$t$ $[\mu s]$')
+                            ax.set_xlabel('$\it t$ $[\mu s]$')
                         if label in ypos:
                             ax.set_ylabel('$response$')
                         ax.set_xlim([0, pw])

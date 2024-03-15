@@ -1,15 +1,13 @@
 import functions as f
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 import time
-mpl.style.use('bmh')
-mpl.rcParams['axes.prop_cycle'] = mpl.rcParamsDefault['axes.prop_cycle']
-mpl.rcParams['font.family'] = 'serif'
-mpl.rcParams['font.serif'] = 'Times New Roman'
-mpl.rcParams.update({'font.size': 10})
-mpl.rcParams["mathtext.default"] = 'rm'
+
+try:
+    plt.style.use('C:/Users/wilbertr/OneDrive/TU Delft/PhD/PythonProjects/mpl-stylesheet/custom_mpl_style/matplotlibrc')
+except:
+    pass
 
 
 class MKID:
@@ -293,7 +291,7 @@ class MKID:
 
         tstop = time.time()
         telapsed = tstop - tstart
-        print(print('----------------FINISHED (IN %d s)----------------') % telapsed)
+        print('----------------FINISHED (IN %d s)----------------' % telapsed)
 
     def plot_overview(self):
         sw = self.settings['sw']
@@ -322,6 +320,7 @@ class MKID:
         mph = self.settings['mph']
         sw = self.settings['sw']
         H = self.data['H']
+        H_smoothed = self.data['H_smoothed']
         window = self.settings['window']
 
         if type == 'light':
@@ -335,32 +334,32 @@ class MKID:
             ax.set_title('Dark timestream')
         if int(tlim[-1]*sf) > len(signal):
             tlim = (0, 1)
-        plot_locs_idx = (locs > tlim[0]*sf) & (locs < tlim[1]*sf)
+        plot_locs_idx = (locs >= tlim[0]*sf) & (locs < tlim[1]*sf)
         plot_locs = locs[plot_locs_idx]
 
         t_idx = np.arange(int(tlim[0]*sf), int(tlim[1]*sf), 1)
         ylim = [-0.5, np.ceil(np.amax(signal[t_idx]))]
         t = t_idx / sf
-
+        
         ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream', zorder=1)  
         if sw:  
             kernel = f.get_window(window, sw)
-            smoothed_signal = np.convolve(signal, kernel, mode='same')
-            ax.plot(t, smoothed_signal[t_idx], lw=0.5, label='smoothed', zorder=2)
+            smoothed_signal = np.convolve(signal, kernel, mode='valid')
+            ax.plot(t[:-sw+1], smoothed_signal[t_idx[:-sw+1]], lw=0.5, label='smoothed', zorder=2)
         
         if type == 'light':
             if len(plot_locs_idx):
-                plot_sel_H = H[plot_locs_idx]
-                ax.scatter(plot_locs / sf, plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses', zorder=4)
-            plot_filtered_idx = (filtered_locs > tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
+                plot_sel_H = H_smoothed[plot_locs_idx]
+                ax.scatter(t[plot_locs], plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses', zorder=4)
+            plot_filtered_idx = (filtered_locs >= tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
             if len(plot_filtered_idx):
                 plot_filtered_locs = filtered_locs[plot_filtered_idx]
                 plot_filtered_H = smoothed_signal[plot_filtered_locs]
-                ax.scatter(plot_filtered_locs / sf, plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses', zorder=4)
+                ax.scatter(t[plot_filtered_locs], plot_filtered_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, label='del. pulses', zorder=4)
         elif type == 'dark':
             if len(plot_locs):
-                plot_dark_H = signal[plot_locs]
-                ax.scatter(plot_locs / sf, plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, zorder=4)
+                plot_dark_H = smoothed_signal[plot_locs]
+                ax.scatter(t[plot_locs], plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, zorder=4)
         ax.axhline(mph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (mph), zorder=3)
         ax.set_ylim(ylim)
         ax.set_xlim(tlim)
@@ -503,7 +502,7 @@ class MKID:
             bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
             ax.hist(H[idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
             ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
-            ax.plot(pdfx, pdfy, c='tab:green', label='KDE')
+            ax.plot(pdfx, pdfy, c='k', ls='--', lw=0.5, label='KDE')
             ax.set_xlim([0, bin_max])
             ax.set_title('Optimal filter heights')
         elif type == 'dark smoothed':
