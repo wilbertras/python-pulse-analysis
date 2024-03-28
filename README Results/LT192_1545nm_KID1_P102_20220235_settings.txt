@@ -4,7 +4,8 @@ response:X
 pw:64
 sw:5
 window:box
-ssf:4
+ssf:8
+sstype:interp
 buffer:0.25
 mph:0.14
 mpp:0.14

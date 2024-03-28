@@ -166,19 +166,19 @@ def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]
         return signal
 
 
-def supersample(signal, num, type='resample', axis=0):
-    if type == 'interp1d':
+def supersample(signal, num, type='interp1d', axis=0):
+    if type == 'interp':
         l = len(signal)
         x = np.arange(l)  
         x_ss = np.linspace(0, l-1, num)
         return interp1d(x, signal, axis=axis)(x_ss)
-    elif type == 'resample':
+    elif type == 'upsample':
         return resample(signal, num, axis=axis)
     else:
         raise Exception('Please input correct supersample type: "interp1d" or "resample"')
 
 
-def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=False):
+def peak_model(signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset, plot_pulse=False):
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
@@ -186,6 +186,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
         pass
     else:
         ssf = 1
+
     # Smooth timestream data for peak finding
     if sw:    
         kernel = get_window(window, sw)
@@ -227,7 +228,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
         nr_far_enough = filter.sum()
         perc_too_close = round(100 * (1 - nr_far_enough / nr_pulses))
 
-        # Cut pulses from timestream and align on smoothed peak
+        # Cut pulses from timestream and align on peak or rising edge
         sel_locs = copy(locs_smoothed)
         pulses_aligned = []
         idx_halfmax = []
@@ -252,6 +253,7 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
             
             # Correct for drift by substracting the mean of the signal in the buffer before and after the pulse from the pulse itself
             offset = np.mean(np.hstack((pulse[:buffer], pulse[-buffer:])))
+            offset = np.mean(pulse[:buffer])
             pulse -= offset
             smoothed_pulse -= offset
             smoothed_peak = pks_smoothed[i]
@@ -261,8 +263,8 @@ def peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_st
             else:
                 # Supersample the peak
                 if ssf and ssf > 1:
-                    pulse = supersample(pulse, buffer_len * ssf)
-                    smoothed_pulse = supersample(smoothed_pulse, buffer_len * ssf)
+                    pulse = supersample(pulse, buffer_len * ssf, type=sstype)
+                    smoothed_pulse = supersample(smoothed_pulse, buffer_len * ssf, type=sstype)
                 else: 
                     ssf = 1
                 
@@ -390,7 +392,7 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
-def noise_model(signal, pw, sf, ssf, nr_req_segments, sw, window):
+def noise_model(signal, pw, sf, ssf, sstype, nr_req_segments, sw, window):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -436,7 +438,7 @@ def noise_model(signal, pw, sf, ssf, nr_req_segments, sw, window):
         else:
             stds += np.std(next_smoothed_segment)
             if ssf and ssf > 1:
-                next_segment = supersample(next_segment, pw*ssf)
+                next_segment = supersample(next_segment, pw*ssf, type=sstype)
             freqs, sxx_segment = welch(next_segment, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True)
             sxx_segments += sxx_segment  # cumulatively add the PSDs of all the noise segments
             nr_good_segments += 1

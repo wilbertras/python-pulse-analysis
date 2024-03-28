@@ -79,7 +79,9 @@ class MKID:
         pw = settings['pw']
         sw = settings['sw']
         window = settings['window']
+        align = settings['align'] 
         ssf = settings['ssf']
+        sstype = settings['sstype']
         buffer = settings['buffer']
         mph = settings['mph']
         mpp = settings['mpp']
@@ -88,7 +90,6 @@ class MKID:
         H_range = settings['H_range']
         fit_T = settings['fit_T']
         max_bw = settings['max_bw']
-        tlim = settings['tlim']
         filter_std = settings['filter_std']
         rise_offset = settings['rise_offset']
 
@@ -98,9 +99,9 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
         print('(1/3) Constructing noise_model')
-        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, nr_noise_segments, sw, window)
+        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, sstype, nr_noise_segments, sw, window)
 
-        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, nr_noise_segments, sw, window)
+        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, sstype, nr_noise_segments, sw, window)
         self.data['dark_threshold'] = dark_threshold
         if mph == None:
             mph = dark_threshold
@@ -147,7 +148,7 @@ class MKID:
                     else:
                         plot_pulses = False
 
-                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=plot_pulses)
+                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)
                     
                     if len(sel_locs_chunck) != 0:
                         sel_locs_chunck += int(start * sf)
@@ -174,7 +175,7 @@ class MKID:
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
                 print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset, plot_pulse=plot_pulses)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)  
 
             # Filter the pulses that satisfy H_range with filter_std number of standard deviations
             if H_range:
@@ -211,7 +212,7 @@ class MKID:
 
         # Get pulses in dark data
         print('   (%d/%d) dark files processed:' % (self.nr_dark_segments, self.nr_dark_segments))  
-        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, window, ssf, buffer, H_range, filter_std, rise_offset)
+        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset)
         dark_locs = np.hstack((sel_dark_locs, filtered_dark_locs))
         self.data['dark_locs'] = dark_locs
 
