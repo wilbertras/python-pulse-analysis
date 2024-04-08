@@ -72,26 +72,49 @@ class MKID:
 
     def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
         print('----------------STARTED----------------')
-        self.settings = settings
         sf = settings['sf']
+        sff = int(sf / 1e6)
+        settings['sff'] = sff
         response = settings['response']
         coord = settings['coord']
-        pw = settings['pw']
-        sw = settings['sw']
-        window = settings['window']
-        align = settings['align'] 
-        ssf = settings['ssf']
-        sstype = settings['sstype']
+        pl = settings['pw']
+        rise_offset = settings['rise_offset']
+        pw = (pl + rise_offset)
         buffer = settings['buffer']
+        windowtype = settings['window']
+        sw = settings['sw']
+        if sw and sw > 1:
+            if windowtype == 'pulse' and self.existing_peak_model:
+                window = f.get_window(windowtype, sw, self.data['mean_pulse'], self.data['nxx'])
+            elif windowtype == 'pulse' and not self.existing_peak_model:
+                windowtype = 'box'
+                settings['windowtype'] = windowtype
+                window = f.get_window(windowtype, sw*sff)
+            else:
+                window = f.get_window(windowtype, sw*sff)
+        else:
+            sw = 0
+            window = None
+        ssf = settings['ssf']
+        if ssf and ssf > 1:
+            pass
+        else:
+            ssf = 1
+            settings['ssf'] = 1
+        align = settings['align'] 
+        if align == 'peak':
+            ssf = 1
+            settings['ssf'] = ssf
+        sstype = settings['sstype']
         mph = settings['mph']
         mpp = settings['mpp']
         nr_noise_segments = settings['nr_noise_segments']
         binsize = settings['binsize']
         H_range = settings['H_range']
-        fit_T = settings['fit_T']
+        fit_T = np.array(settings['fit_T'])
         max_bw = settings['max_bw']
         filter_std = settings['filter_std']
-        rise_offset = settings['rise_offset']
+        self.settings = settings
 
         tstart = time.time()
         self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
@@ -99,9 +122,9 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
         print('(1/3) Constructing noise_model')
-        fxx, nxx, _ = f.noise_model(self.dark_signal, pw, sf, ssf, sstype, nr_noise_segments, sw, window)
+        fxx, nxx, _, noises = f.noise_model(self.dark_signal, pw, sff, ssf, sstype, nr_noise_segments, sw, window)
 
-        Nfxx, Nxx, dark_threshold = f.noise_model(self.dark_signal, max_bw, sf, None, sstype, nr_noise_segments, sw, window)
+        Nfxx, Nxx, dark_threshold, _ = f.noise_model(self.dark_signal, max_bw, sff, 1, sstype, nr_noise_segments, sw, window)
         self.data['dark_threshold'] = dark_threshold
         if mph == None:
             mph = dark_threshold
@@ -110,7 +133,7 @@ class MKID:
             self.settings['mpp'] = mpp
 
         if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True) or self.max_chuncks != max_chuncks: 
-            print('(2/3) Constructing peak_model')
+            print('(2/3) Constructing peak_model, aligning on pulse %s' % align)
             self.max_chuncks = max_chuncks
             if self.max_chuncks:
                 if self.max_chuncks > 1:
@@ -148,7 +171,7 @@ class MKID:
                     else:
                         plot_pulses = False
 
-                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)
+                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)
                     
                     if len(sel_locs_chunck) != 0:
                         sel_locs_chunck += int(start * sf)
@@ -175,7 +198,7 @@ class MKID:
                 H_smoothed = np.concatenate(H_smoothed)
             else:  
                 print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)  
+                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)  
 
             # Filter the pulses that satisfy H_range with filter_std number of standard deviations
             if H_range:
@@ -212,7 +235,7 @@ class MKID:
 
         # Get pulses in dark data
         print('   (%d/%d) dark files processed:' % (self.nr_dark_segments, self.nr_dark_segments))  
-        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, align, window, ssf, sstype, buffer, rise_offset)
+        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset)
         dark_locs = np.hstack((sel_dark_locs, filtered_dark_locs))
         self.data['dark_locs'] = dark_locs
 
@@ -235,27 +258,34 @@ class MKID:
 
         ## Optimal filtering and resolving powers
         print('(3/3) Applying optimal_filter')
-        H_opt, R_sn, mean_dxx = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
+        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
+        H_0, _, _, _ = f.optimal_filter(noises, mean_pulse, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
-        R, _, _ = f.resolving_power(H_range, binsize)
-        R_opt, pdf_y, pdf_x = f.resolving_power(H_opt, binsize)
+        R, _, _, _, _ = f.resolving_power(H_range, binsize)
+        R_opt, pdf_y, pdf_x, mu_opt, _ = f.resolving_power(H_opt, binsize)
         R_i = 1 / np.sqrt(1 / R_opt**2 - 1 / R_sn**2)
+        _, _, _, _, fwhm_0 = f.resolving_power(H_0, binsize)
+        R_0 = mu_opt / fwhm_0
         
         ## Fit lifetime
         tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, fit_T)
         if isinstance(fit_T, (int, float)):
-            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf)
-        elif isinstance(fit_T, (tuple, list)):
-            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf)
+            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf * sff) - rise_offset
+        elif isinstance(fit_T, (tuple, list, np.ndarray)):
+            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf * sff) - rise_offset
         fit_x = np.arange(len(plot_x))
         fit_y = f.exp_decay(fit_x, *popt)
 
         ## Add data and settings to MKID object
+        self.data['window'] = window
         self.data['mean_pulse'] = mean_pulse
         self.data['R'] = R
         self.data['Ropt'] = R_opt
         self.data['Ri'] = R_i
         self.data['Rsn'] = R_sn
+        self.data['R0'] = R_0
+        self.data['chi_sq'] = chi_sq
+        self.data['H0'] = H_0
         self.data['dark_H'] = dark_H
         self.data['dark_H_smoothed'] = dark_H_smoothed
         self.data['Hopt'] = H_opt
@@ -317,12 +347,14 @@ class MKID:
 
     def plot_timestream(self, ax, type, tlim=(0, 1)):
         sf = self.settings['sf']
-        pw = self.settings['pw']
+        pl = self.settings['pw']
+        rise_offset = self.settings['rise_offset']
+        pw = pl + rise_offset
         mph = self.settings['mph']
         sw = self.settings['sw']
         H = self.data['H']
         H_smoothed = self.data['H_smoothed']
-        window = self.settings['window']
+        window = self.data['window']
 
         if type == 'light':
             signal = self.data['signal']
@@ -344,9 +376,11 @@ class MKID:
         
         ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream', zorder=1)  
         if sw:  
-            kernel = f.get_window(window, sw)
-            smoothed_signal = np.convolve(signal, kernel, mode='valid')
-            ax.plot(t[:-sw+1], smoothed_signal[t_idx[:-sw+1]], lw=0.5, label='smoothed', zorder=2)
+            len_window = len(window)
+            smoothed_signal = np.convolve(signal, window, mode='valid')
+            ax.plot(t[:-len_window+1], smoothed_signal[t_idx[:-len_window+1]], lw=0.5, label='smoothed', zorder=2)
+        else:
+            smoothed_signal = signal
         
         if type == 'light':
             if len(plot_locs_idx):
@@ -372,12 +406,13 @@ class MKID:
 
     def plot_stacked_pulses(self, ax):
         pw = self.settings['pw']
+        rise_offset = self.settings['rise_offset']
+        # pw = pl + rise_offset
         pulses = self.data['pulses']
         idx_range = self.data['idx_range']
         pulses = pulses[idx_range]
-        nr_pulses = pulses.shape[0]
-        len_pulses = pulses.shape[-1]
-        t = np.linspace(0, pw-1, len_pulses)
+        nr_pulses, len_pulses = pulses.shape
+        t = np.linspace(-rise_offset, pw-1, len_pulses)
         nr2plot = 100
         if nr2plot > nr_pulses:
             every = 1
@@ -385,23 +420,23 @@ class MKID:
             every = int(np.round(nr_pulses / nr2plot))           
         pulses2plot = pulses[::every, :].T
         ax.plot(t, pulses2plot, lw=0.25)
-        ax.set_xlim([0, pw-1])
+        ax.set_xlim([-rise_offset, pw-1])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
         ax.set_ylabel('$response$')
         ax.set_title('%d overlayed pulses' % pulses2plot.shape[-1])
     
 
     def plot_psds(self, ax):
-        pw = self.settings['pw']
+        len_pulse = len(self.data['mean_pulse'])
         sxx = self.data['sxx']
         fxx = self.data['fxx']
         nxx = self.data['nxx']
         mean_dxx = self.data['mean_dxx']
-        onesided = round(pw / 2) + 1
+        onesided = round(len_pulse / 2) + 1
         ax.semilogx(fxx[1:onesided], 10*np.log10(sxx[1:onesided]), label='$\it M(f)$')
         ax.semilogx(fxx[1:onesided], 10*np.log10(nxx[1:onesided]), label='$\it N(f)$')
         ax.semilogx(fxx[1:onesided], 10*np.log10(mean_dxx[1:onesided]), label='$\it D(f)$')
-        ax.set_ylim([-100, 10*np.log10(np.amax(sxx))])
+        ax.set_ylim([10*np.log10(np.amin(nxx)), 10*np.log10(np.amax(sxx))])
         ax.set_xlim([fxx[1], .5*self.settings['sf']])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)
@@ -414,13 +449,14 @@ class MKID:
     
 
     def plot_mean_pulse(self, ax, type):
-        pw = self.settings['pw']
-        ssf = self.settings['ssf']
+        pl = self.settings['pw']
+        rise_offset = self.settings['rise_offset']
+        pw = pl + rise_offset
         mean_pulse = self.data['mean_pulse']
         fitx = self.data['fitx']
         fity = self.data['fity']
-
-        t = np.linspace(0, pw-1, pw*ssf)
+        len_mean_pulse = len(mean_pulse)
+        t = np.linspace(-rise_offset, pw-1, len_mean_pulse)
         if type == 'lin': 
             ax.plot(t, mean_pulse)
             ax.plot(fitx, fity, ls='--', label='fit')
@@ -429,24 +465,10 @@ class MKID:
             ax.semilogy(t, mean_pulse)
             ax.semilogy(fitx, fity, ls='--', label='fit')
             ax.set_title('Average pulse semilog')
-        ax.set_xlim([0, pw])
+        ax.set_xlim([-rise_offset, pw])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
         ax.set_ylabel('$response$')
         ax.legend()
-        
-
-    def plot_table(self, ax):
-        table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph_range', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'tqp']
-        col_labels = ['$\it{T}$ $[K]$', '$\it{T}$ $[s]$', '$\it{Q}$', '$\it{Q_i}$', '$\it{Q_c}$', '$\it{N}_{ph}^{dark}$ $[cps]$', '$\it{N}_{ph}^{sel}$ $[cps]$', 'rej. [%]', '$<\it{H}_{opt}>$ $[rad]$', '$\it{R}$', '$\it{R}_{opt}$', '$\it{R}_i$', '$\it{R}_{sn}$', '$\it{\\tau}_{qp}$ $[\mu s]$']
-        table_formats = ['%.1f', '%d', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.f']
-        results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]] 
-        the_table = ax.table(cellText=results_text,
-                    rowLabels=['results'],
-                    colLabels=col_labels,
-                    loc='center')
-        _ = ax.axis('off')
-        the_table.auto_set_font_size(False)
-        the_table.set_fontsize(9)
 
 
     def plot_hist(self, ax, type, binsize):
@@ -457,7 +479,7 @@ class MKID:
         if H_range:
             if isinstance(H_range, (int, float)):
                 lim = H_range 
-            elif isinstance(H_range, (tuple, list)):
+            elif isinstance(H_range, (tuple, list, np.ndarray)):
                 if H_range[0] == mph:
                     lim = H_range[1]
                 else:
@@ -478,7 +500,7 @@ class MKID:
             if H_range:
                 if isinstance(H_range, (int, float)):
                     ax.axvline(H_range, c='r', lw=0.5, ls='--', label='$limit$')
-                elif isinstance(H_range, (tuple, list)):
+                elif isinstance(H_range, (tuple, list, np.ndarray)):
                     ax.axvline(H_range[0], c='r', lw=0.5, ls='--', label='$limit$')
                     ax.axvline(H_range[1], c='r', lw=0.5, ls='--')
             ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
@@ -520,6 +542,7 @@ class MKID:
         ax.set_xlabel('$\it{H}$')
         ax.set_ylabel('$counts$')
 
+
     def plot_psd_noise(self, ax):
         Nxx = self.data['Nxx']
         Nfxx = self.data['Nfxx']
@@ -533,7 +556,22 @@ class MKID:
         ax.set_xlabel('$\it{f}$ $[Hz]$')
         ax.set_ylabel('$PSD\/[dBc/Hz]$')
         ax.set_title('PSD dark')
-        
+    
+
+    def plot_table(self, ax):
+        table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'R0', 'tqp']
+        col_labels = ['$\it{T}$ $[K]$', '$\it{T}$ $[s]$', '$\it{Q}$', '$\it{Q_i}$', '$\it{Q_c}$', '$\it{N}_{ph}^{dark}$ $[cps]$', '$\it{N}_{ph}^{det}$ $[cps]$', 'rej. [%]', '$<\it{H}_{opt}>$ $[rad]$', '$\it{R}$', '$\it{R}_{opt}$', '$\it{R}_i$', '$\it{R}_{sn}$', '$\it{R}_{0}$', '$\it{\\tau}_{qp}$ $[\mu s]$']
+        table_formats = ['%.1f', '%d', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f','%.f']
+        results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]] 
+        the_table = ax.table(cellText=results_text,
+                    rowLabels=['results'],
+                    colLabels=col_labels,
+                    loc='center')
+        _ = ax.axis('off')
+        the_table.auto_set_font_size(False)
+        the_table.set_fontsize(10)
+
+
     def save(self, figpath):
         fname = figpath + self.data['name']
         plt.savefig(fname + '_overview.png')

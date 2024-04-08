@@ -1,9 +1,10 @@
 sf:1000000.0
 coord:smith
 response:X
-pw:64
+pw:128
 sw:5
 window:box
+align:edge
 ssf:8
 sstype:interp
 buffer:0.25
@@ -16,4 +17,4 @@ fit_T:[30, 70]
 max_bw:100000
 tlim:[0, 1]
 filter_std:5
-rise_offset:0.1
+rise_offset:12
