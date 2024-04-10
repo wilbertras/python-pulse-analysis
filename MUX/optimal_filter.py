@@ -8,15 +8,16 @@ def pulse_model(pulses, pw, sf):
     """
     pulse_model computes  that serves as input for the optimal filter.
     :param pulses:              numpy.ndarray, MxN array of M pulses of N length
-    :param len_onesided:        int, pulse window length
+    :param pw:                  int, pulse window length
     :return norm_pulse:         numpy.ndarray, the normalised mean pulse
     :return norm_pulse_fft:     numpy.ndarray, the onesided fft of the normalised mean pulse
+    :return norm_pulse_psd:     numpy.ndarray, the psd of the normalised mean pulse
     """
     len_onesided = round(pw / 2) + 1 
 
     mean_pulse = np.mean(pulses, axis=0)
     max_pulse = np.amax(mean_pulse)
-    
+
     norm_pulse = mean_pulse / max_pulse
     
     norm_pulse_fft = fft(norm_pulse)[:len_onesided]
