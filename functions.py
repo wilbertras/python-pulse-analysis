@@ -488,7 +488,7 @@ def optimal_filter(pulses, pulse_model, sf, ssf, nxx):
     dE = 2*np.sqrt(2*np.log(2)) * (np.sum(4 / NEP[:, 1:-1]**2, axis=-1))**-0.5
     R_sn = np.mean(1 / dE)
 
-    chi_sq = np.sum((Df[:, 1:len_onesided] - np.outer(H, Mf))**2 / nxx[1:len_onesided], axis=-1)
+    chi_sq = np.sum((Df[:, 1:len_onesided] - np.outer(H, Mf[1:len_onesided]))**2 / nxx[1:len_onesided], axis=-1)
 
     return H, R_sn, mean_Dxx, chi_sq
 

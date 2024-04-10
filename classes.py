@@ -407,7 +407,6 @@ class MKID:
     def plot_stacked_pulses(self, ax):
         pw = self.settings['pw']
         rise_offset = self.settings['rise_offset']
-        # pw = pl + rise_offset
         pulses = self.data['pulses']
         idx_range = self.data['idx_range']
         pulses = pulses[idx_range]
@@ -420,7 +419,7 @@ class MKID:
             every = int(np.round(nr_pulses / nr2plot))           
         pulses2plot = pulses[::every, :].T
         ax.plot(t, pulses2plot, lw=0.25)
-        ax.set_xlim([-rise_offset, pw-1])
+        ax.set_xlim([-rise_offset, pw])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
         ax.set_ylabel('$response$')
         ax.set_title('%d overlayed pulses' % pulses2plot.shape[-1])
@@ -449,9 +448,8 @@ class MKID:
     
 
     def plot_mean_pulse(self, ax, type):
-        pl = self.settings['pw']
+        pw = self.settings['pw']
         rise_offset = self.settings['rise_offset']
-        pw = pl + rise_offset
         mean_pulse = self.data['mean_pulse']
         fitx = self.data['fitx']
         fity = self.data['fity']

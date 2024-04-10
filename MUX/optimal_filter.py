@@ -4,21 +4,26 @@ from scipy.signal import welch
 import matplotlib.pyplot as plt
 
 
-def pulse_model(pulses, pw):
+def pulse_model(pulses, pw, sf):
     """
     pulse_model computes  that serves as input for the optimal filter.
     :param pulses:              numpy.ndarray, MxN array of M pulses of N length
-    :param pw:                  int, pulse window length
+    :param len_onesided:        int, pulse window length
+    :return norm_pulse:         numpy.ndarray, the normalised mean pulse
     :return norm_pulse_fft:     numpy.ndarray, the onesided fft of the normalised mean pulse
     """
-    len_onesided = round(pw / 2) + 1
+    len_onesided = round(pw / 2) + 1 
 
     mean_pulse = np.mean(pulses, axis=0)
     max_pulse = np.amax(mean_pulse)
+    
     norm_pulse = mean_pulse / max_pulse
     
     norm_pulse_fft = fft(norm_pulse)[:len_onesided]
-    return norm_pulse_fft
+
+    norm_pulse_psd = 1 / (pw * sf) * np.absolute(norm_pulse_fft)**2
+    norm_pulse_psd[1:-1] *= 2   
+    return norm_pulse, norm_pulse_fft, norm_pulse_psd
 
 
 def noise_model(noise, pw, sf, threshold=None, nr_req_segments=1000):
@@ -47,7 +52,7 @@ def noise_model(noise, pw, sf, threshold=None, nr_req_segments=1000):
         start = count * pw
         stop = start + pw
         if stop >= noise_len:  # ensure that the next segment does not run out of the available data 
-            print('     WARNING: only %d/%d noise segments obtained with max_bw=%d' % (nr_good_segments, nr_req_segments, pw))
+            print('     WARNING: only %d/%d noise segments obtained with length %d' % (nr_good_segments, nr_req_segments, pw))
             break
         next_segment = noise[start:stop]
         nr_outliers = np.sum(next_segment > threshold)
@@ -89,9 +94,9 @@ def mux_filter(pulse, len_onesided, norm_pulse_fft, noise_psd, norm_factor, excl
     :return H:              float, optimal pulse height
     """
     pulse_fft = fft(pulse)[:len_onesided]
-    dH = (norm_pulse_fft.conj() * pulse_fft / noise_psd)
-    H = np.real(np.sum(dH[exclude_dc:]) / norm_factor)
-    return H
+    dH = norm_pulse_fft.conj() * pulse_fft / noise_psd
+    H = np.sum(dH[exclude_dc:])
+    return np.real(H / norm_factor)
 
 
 
