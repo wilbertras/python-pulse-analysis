@@ -12,6 +12,7 @@ except:
 
 class MKID:
     def __init__(self, *args, file_path=None, discard_saturated=True):
+        tstart = time.time()
         if not args:
             self.load_mkid(file_path)
         elif file_path is None:
@@ -68,10 +69,14 @@ class MKID:
                 print('No info file obtained')
             for x in info:
                 self.data[x] = info[x]
+        tstop = time.time()
+        telapsed = tstop - tstart
+        print('Elapsed time: %d s' % telapsed)
 
 
     def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
         print('----------------STARTED----------------')
+        tstart = time.time()
         sf = settings['sf']
         sff = int(sf / 1e6)
         settings['sff'] = sff
@@ -114,9 +119,10 @@ class MKID:
         fit_T = np.array(settings['fit_T'])
         max_bw = settings['max_bw']
         filter_std = settings['filter_std']
+        pulse_template = settings['pulse_template']
         self.settings = settings
 
-        tstart = time.time()
+
         self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
         first_sec = int(1 * sf)
         self.data['signal'] = self.signal[0:first_sec]
@@ -258,8 +264,13 @@ class MKID:
 
         ## Optimal filtering and resolving powers
         print('(3/3) Applying optimal_filter')
-        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
-        H_0, _, _, _ = f.optimal_filter(noises, mean_pulse, sf, ssf, nxx)
+        if (isinstance(pulse_template, np.ndarray)) and (len(pulse_template) == len(mean_pulse)):
+            pulse_model = pulse_template
+        else:
+            pulse_model = mean_pulse
+
+        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, pulse_model, sf, ssf, nxx)
+        H_0, _, _, _ = f.optimal_filter(noises, pulse_model, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
         R, _, _, _, _ = f.resolving_power(H_range, binsize)
         R_opt, pdf_y, pdf_x, mu_opt, _ = f.resolving_power(H_opt, binsize)
@@ -279,6 +290,7 @@ class MKID:
         ## Add data and settings to MKID object
         self.data['window'] = window
         self.data['mean_pulse'] = mean_pulse
+        self.data['pulse_template'] = pulse_template
         self.data['R'] = R
         self.data['Ropt'] = R_opt
         self.data['Ri'] = R_i
