@@ -5,7 +5,7 @@ import pickle
 import time
 
 try:
-    plt.style.use('C:/Users/wilbertr/OneDrive/TU Delft/PhD/PythonProjects/mpl-stylesheet/custom_mpl_style/matplotlibrc')
+    plt.style.use('../../mpl-stylesheet/custom_mpl_style/matplotlibrc')
 except:
     pass
 
@@ -89,14 +89,7 @@ class MKID:
         windowtype = settings['window']
         sw = settings['sw']
         if sw and sw > 1:
-            if windowtype == 'pulse' and self.existing_peak_model:
-                window = f.get_window(windowtype, sw, self.data['mean_pulse'], self.data['nxx'])
-            elif windowtype == 'pulse' and not self.existing_peak_model:
-                windowtype = 'box'
-                settings['windowtype'] = windowtype
-                window = f.get_window(windowtype, sw*sff)
-            else:
-                window = f.get_window(windowtype, sw*sff)
+            window = f.get_window(windowtype, sw*sff)
         else:
             sw = 0
             window = None
@@ -290,7 +283,7 @@ class MKID:
         ## Add data and settings to MKID object
         self.data['window'] = window
         self.data['mean_pulse'] = mean_pulse
-        self.data['pulse_template'] = pulse_template
+        self.data['pulse_template'] = pulse_model
         self.data['R'] = R
         self.data['Ropt'] = R_opt
         self.data['Ri'] = R_i
@@ -463,17 +456,20 @@ class MKID:
         pw = self.settings['pw']
         rise_offset = self.settings['rise_offset']
         mean_pulse = self.data['mean_pulse']
+        pulse_model = self.data['pulse_template']
         fitx = self.data['fitx']
         fity = self.data['fity']
         len_mean_pulse = len(mean_pulse)
         t = np.linspace(-rise_offset, pw-1, len_mean_pulse)
         if type == 'lin': 
-            ax.plot(t, mean_pulse)
-            ax.plot(fitx, fity, ls='--', label='fit')
+            ax.plot(t, mean_pulse, label='mean pulse', zorder=1)
+            ax.plot(t, pulse_model, label='pulse model', zorder=0)
+            ax.plot(fitx, fity, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse')
         elif type == 'log':
-            ax.semilogy(t, mean_pulse)
-            ax.semilogy(fitx, fity, ls='--', label='fit')
+            ax.semilogy(t, mean_pulse, label='mean pulse', zorder=1)
+            ax.semilogy(t, pulse_model, label='pulse model', zorder=0)
+            ax.semilogy(fitx, fity, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse semilog')
         ax.set_xlim([-rise_offset, pw])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
@@ -529,10 +525,12 @@ class MKID:
         elif type == 'optimal filter':
             Hopt = self.data['Hopt']
             H = self.data['H']
+            H0 = self.data['H0']
             pdfx = self.data['pdfx']
             pdfy = self.data['pdfy']
             bin_max = np.amax((np.amax(H), np.amax(Hopt)))
             bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
+            ax.hist(H0, bins=bin_edges, color='k', alpha=0.5, label='$\it{H}_{0}$')
             ax.hist(H[idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
             ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
             ax.plot(pdfx, pdfy, c='k', ls='--', lw=0.5, label='KDE')

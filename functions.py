@@ -625,29 +625,23 @@ def one_over_t(x, a, b, c):
     return a / ((1 + c) * np.exp(b * x) - 1)
 
 
-def get_window(type, tau, pulse_model=None, nxx=None):
+def get_window(type, tau):
     if type == 'box':
         M = int(tau / 2)
         y = windows.boxcar(M, sym=False)
         y /= np.sum(y)
     if type == 'exp':
         M = int(tau*3)
-        y = windows.exponential(M, center=0, tau=tau, sym=False) 
+        y = windows.exponential(M, center=0, tau=tau, sym=False)
         y /= np.sum(y)
-    if type == 'pulse':
-        pw = len(pulse_model)
-        norm_pulse_model = pulse_model / np.amax(pulse_model)
-        len_onesided = round(pw / 2) + 1
-        Mf = fft(norm_pulse_model)[:len_onesided]
-        Mf_conj = Mf.conj()
-        # Mf_abs = np.absolute(Mf)
-        # denominator = Mf_abs[:len_onesided]**2 / Nsq[:len_onesided]
-        Sf = Mf_conj[:len_onesided] / nxx[:len_onesided]
-        # Sf_norm = Sf / np.sum(denominator)
-        Sf_norm = Sf
-        y = ifft(Sf_norm)
-        y = np.real(y)[::-1]
-    return y
+    return y[::-1]
+
+
+def pulse_template(pw, rise_offset, tau):
+    t = np.arange(pw)
+    offset = np.zeros(rise_offset)
+    pulse = np.exp(-t/tau)
+    return np.hstack((offset, pulse))
 
 
 def get_kid(dir_path, lt, wl, kid, date):
