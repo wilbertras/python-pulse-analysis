@@ -112,7 +112,6 @@ class MKID:
         fit_T = np.array(settings['fit_T'])
         max_bw = settings['max_bw']
         filter_std = settings['filter_std']
-        pulse_template = settings['pulse_template']
         self.settings = settings
 
 
@@ -257,13 +256,8 @@ class MKID:
 
         ## Optimal filtering and resolving powers
         print('(3/3) Applying optimal_filter')
-        if (isinstance(pulse_template, np.ndarray)) and (len(pulse_template) == len(mean_pulse)):
-            pulse_model = pulse_template
-        else:
-            pulse_model = mean_pulse
-
-        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, pulse_model, sf, ssf, nxx)
-        H_0, _, _, _ = f.optimal_filter(noises, pulse_model, sf, ssf, nxx)
+        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
+        H_0, _, _, _ = f.optimal_filter(noises, mean_pulse, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
         R, _, _, _, _ = f.resolving_power(H_range, binsize)
         R_opt, pdf_y, pdf_x, mu_opt, _ = f.resolving_power(H_opt, binsize)
@@ -283,7 +277,6 @@ class MKID:
         ## Add data and settings to MKID object
         self.data['window'] = window
         self.data['mean_pulse'] = mean_pulse
-        self.data['pulse_template'] = pulse_model
         self.data['R'] = R
         self.data['Ropt'] = R_opt
         self.data['Ri'] = R_i
@@ -456,19 +449,16 @@ class MKID:
         pw = self.settings['pw']
         rise_offset = self.settings['rise_offset']
         mean_pulse = self.data['mean_pulse']
-        pulse_model = self.data['pulse_template']
         fitx = self.data['fitx']
         fity = self.data['fity']
         len_mean_pulse = len(mean_pulse)
         t = np.linspace(-rise_offset, pw-1, len_mean_pulse)
         if type == 'lin': 
             ax.plot(t, mean_pulse, label='mean pulse', zorder=1)
-            ax.plot(t, pulse_model, label='pulse model', zorder=0)
             ax.plot(fitx, fity, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse')
         elif type == 'log':
             ax.semilogy(t, mean_pulse, label='mean pulse', zorder=1)
-            ax.semilogy(t, pulse_model, label='pulse model', zorder=0)
             ax.semilogy(fitx, fity, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse semilog')
         ax.set_xlim([-rise_offset, pw])

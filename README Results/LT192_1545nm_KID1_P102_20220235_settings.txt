@@ -1,20 +1,21 @@
 sf:1000000.0
 coord:smith
 response:X
-pw:128
-sw:5
+pw:1000
+sw:None
 window:box
-align:edge
-ssf:8
+align:peak
+ssf:1
 sstype:interp
-buffer:0.25
-mph:0.14
-mpp:0.14
-nr_noise_segments:100
-binsize:0.028000000000000004
-H_range:(0, 0.5)
-fit_T:[30, 70]
+buffer:10
+mph:0.16
+mpp:0.16
+nr_noise_segments:1000
+binsize:0.03
+H_range:(0.25, 1)
+fit_T:[75, 125]
 max_bw:100000
 tlim:[0, 1]
 filter_std:5
-rise_offset:12
+rise_offset:24
+sff:1

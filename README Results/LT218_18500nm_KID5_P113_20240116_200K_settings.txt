@@ -1,0 +1,22 @@
+sf:1000000.0
+coord:smith
+response:X
+pw:1000
+sw:250
+align:peak
+window:exp
+ssf:1
+sstype:interp
+buffer:10
+mph:0.03
+mpp:0.03
+nr_noise_segments:1000
+binsize:0.01
+H_range:None
+fit_T:[200, 500]
+max_bw:10000
+tlim:[0, 1]
+filter_std:5
+rise_offset:50
+pulse_template:None
+sff:1
