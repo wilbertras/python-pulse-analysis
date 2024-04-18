@@ -1,7 +1,7 @@
 sf:1000000.0
 coord:smith
 response:X
-pw:1000
+pw:200
 sw:None
 window:box
 align:peak
@@ -17,5 +17,5 @@ fit_T:[75, 125]
 max_bw:100000
 tlim:[0, 1]
 filter_std:5
-rise_offset:24
+rise_offset:20
 sff:1
