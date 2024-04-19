@@ -82,9 +82,9 @@ class MKID:
         settings['sff'] = sff
         response = settings['response']
         coord = settings['coord']
-        pl = settings['pw']
+        pulse_length = settings['pw']
         rise_offset = settings['rise_offset']
-        pw = (pl + rise_offset)
+        pw = (pulse_length + rise_offset)
         buffer = settings['buffer']
         windowtype = settings['window']
         sw = settings['sw']
@@ -120,9 +120,9 @@ class MKID:
         self.data['signal'] = self.signal[0:first_sec]
         self.data['dark_signal'] = self.dark_signal[0:first_sec]
         print('(1/3) Constructing noise_model')
-        fxx, nxx, _, noises = f.noise_model(self.dark_signal, pw, sff, ssf, sstype, nr_noise_segments, sw, window)
+        fxx, nxx, _, noises = f.noise_model(self.dark_signal, pw, sff, nr_noise_segments, sw, window)
 
-        Nfxx, Nxx, dark_threshold, _ = f.noise_model(self.dark_signal, max_bw, sff, 1, sstype, nr_noise_segments, sw, window)
+        Nfxx, Nxx, dark_threshold, _ = f.noise_model(self.dark_signal, max_bw, sff, nr_noise_segments, sw, window)
         self.data['dark_threshold'] = dark_threshold
         if mph == None:
             mph = dark_threshold
@@ -241,7 +241,7 @@ class MKID:
         pulses_range = pulses[idx_range, :]
         H_range = H[idx_range]
         mean_pulse = np.mean(pulses_range, axis=0)
-        sxx = f.psd(mean_pulse, sf*ssf)
+        sxx = f.psd(mean_pulse, sf*ssf)[1:round(pw/2)+1]
         
         ## Determine some pulse statistics
         nr_sel_pulses = len(sel_locs)
@@ -424,15 +424,13 @@ class MKID:
     
 
     def plot_psds(self, ax):
-        len_pulse = len(self.data['mean_pulse'])
         sxx = self.data['sxx']
         fxx = self.data['fxx']
         nxx = self.data['nxx']
         mean_dxx = self.data['mean_dxx']
-        onesided = round(len_pulse / 2) + 1
-        ax.semilogx(fxx[1:onesided], 10*np.log10(sxx[1:onesided]), label='$\it M(f)$')
-        ax.semilogx(fxx[1:onesided], 10*np.log10(nxx[1:onesided]), label='$\it N(f)$')
-        ax.semilogx(fxx[1:onesided], 10*np.log10(mean_dxx[1:onesided]), label='$\it D(f)$')
+        ax.semilogx(fxx, 10*np.log10(sxx), label='$\it M(f)$')
+        ax.semilogx(fxx, 10*np.log10(nxx), label='$\it N(f)$')
+        ax.semilogx(fxx, 10*np.log10(mean_dxx), label='$\it D(f)$')
         ax.set_ylim([10*np.log10(np.amin(nxx)), 10*np.log10(np.amax(sxx))])
         ax.set_xlim([fxx[1], .5*self.settings['sf']])
         ax.grid(which='major', lw=0.5)
@@ -544,7 +542,7 @@ class MKID:
     def plot_psd_noise(self, ax):
         Nxx = self.data['Nxx']
         Nfxx = self.data['Nfxx']
-        ax.semilogx(Nfxx[1:], 10*np.log10(Nxx[1:]))
+        ax.semilogx(Nfxx, 10*np.log10(Nxx))
         ax.set_ylim([-100, 10*np.log10(np.amax(Nxx))])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)

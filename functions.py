@@ -166,16 +166,16 @@ def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]
         return signal
 
 
-def supersample(signal, num, type='interp1d', axis=0):
+def supersample(signal, num, type='interp', axis=0):
     if type == 'interp':
         l = len(signal)
         x = np.arange(l)  
         x_ss = np.linspace(0, l-1, num)
         return interp1d(x, signal, axis=axis)(x_ss)
-    elif type == 'upsample':
+    elif type == 'fourier':
         return resample(signal, num, axis=axis)
     else:
-        raise Exception('Please input correct supersample type: "interp1d" or "upsample"')
+        raise Exception('Please input correct supersample type: "interp" or "fourier"')
 
 
 def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
@@ -259,15 +259,16 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
             elif align == 'edge': 
                 # Supersample the peak
                 if ssf > 1:
-                    pulse = supersample(pulse, buffer_len * ssf, type=sstype)
-                    smoothed_pulse = supersample(smoothed_pulse, buffer_len * ssf, type=sstype)
-                    pw *= ssf
-                    buffer *= ssf
-                    rise_offset *= ssf
-                    buffer_len *= ssf
+                    # if i == 0:
+                    #     pw *= ssf
+                    #     buffer *= ssf
+                    #     rise_offset *= ssf
+                    #     buffer_len *= ssf
+                    pulse = supersample(pulse, buffer_len*ssf, type=sstype)
+                    smoothed_pulse = supersample(smoothed_pulse, buffer_len*ssf, type=sstype)
                 
-                smoothed_loc = (buffer + rise_offset)   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
-                len_pulse = int(buffer_len)
+                smoothed_loc = (buffer + rise_offset)*ssf   # this is a guess of the smoothed peak based on the loc from smoothed data. The true smoothed peak and peak height still have to be determined   
+                len_pulse = int(buffer_len*ssf)
                 unsmoothed_height = pulse[smoothed_loc]
 
                 if unsmoothed_height <= smoothed_peak:
@@ -295,11 +296,11 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
                 # Align pulses on rising edge   
                 half_max = full_max / 2
                 rising_edge = idx_max - np.argmax(pulse[-(len_pulse - idx_max)::-1] < half_max) # Find rising edge as the first value closest to half the maximum starting from the peak
-                if rising_edge > rise_offset: # Check
-                    shift_start = int(rising_edge - rise_offset)  # Start cut at rise_offset before rising edge
-                    shift_end = int(shift_start + pw)  # End cut at pulsewindow after rising edge
+                if rising_edge > rise_offset*ssf: # Check
+                    shift_start = int(rising_edge - rise_offset*ssf)  # Start cut at rise_offset before rising edge
+                    shift_end = int(shift_start + pw*ssf)  # End cut at pulsewindow after rising edge
                     aligned_pulse = pulse[shift_start:shift_end]
-                    if len(aligned_pulse) == pw:
+                    if len(aligned_pulse) == pw*ssf:
                         pulses_aligned.append(aligned_pulse)
                         idx_align.append(rising_edge)
                         H.append(full_max) 
@@ -315,7 +316,7 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
                 if plot_count < nr_plots:
                     label = pos[plot_count]
                     ax = axes[label]
-                    t = np.linspace(0, pw, len(pulse))
+                    t = np.linspace(0, pw*ssf, len(pulse))
                     ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse', zorder=0)
                     if sw:
                         ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', label='smoothed pulse', zorder=1)
@@ -333,7 +334,7 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
                     axes['a'].legend(bbox_to_anchor=(0., 1.06, 5., .06), loc='upper left',
                     ncols=7, mode="expand", borderaxespad=0., fontsize=9)
                     plot_count += 1          
-        pulses_aligned = np.array(pulses_aligned).reshape((-1, pw))
+        pulses_aligned = np.array(pulses_aligned).reshape((-1, pw*ssf))
         idx_align = np.array(idx_align)
         H = np.array(H)
         sel_locs = sel_locs[filter_diff]
@@ -393,7 +394,7 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
-def noise_model(signal, pw, sff, ssf, sstype, nr_req_segments, sw, window):
+def noise_model(signal, pw, sff, nr_req_segments, sw, window):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -401,7 +402,7 @@ def noise_model(signal, pw, sff, ssf, sstype, nr_req_segments, sw, window):
     pw *= sff
     sw *= sff
     signal_length = len(signal)
-    len_onesided = round(pw * ssf / 2) + 1
+    len_onesided = round(pw/ 2) + 1
     sxx_segments = np.zeros(len_onesided)
 
     # Smooth timestream for better pulse detection
@@ -435,9 +436,7 @@ def noise_model(signal, pw, sff, ssf, sstype, nr_req_segments, sw, window):
             nr += 1
         else:
             stds += np.std(next_smoothed_segment)
-            if ssf > 1:
-                next_segment = supersample(next_segment, pw*ssf, type=sstype)
-            freqs, sxx_segment = welch(next_segment, fs=int(sff*1e6*ssf), window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True)
+            freqs, sxx_segment = welch(next_segment, fs=int(sff*1e6), window='hamming', nperseg=pw, noverlap=None, nfft=None, return_onesided=True)
             sxx_segments += sxx_segment  # cumulatively add the PSDs of all the noise segments
             noise_segments.append(next_segment)
             nr_good_segments += 1
@@ -448,52 +447,55 @@ def noise_model(signal, pw, sff, ssf, sstype, nr_req_segments, sw, window):
     std = stds / nr_good_segments  # compute the avarage std
     threshold = np.round(5 * std, decimals=2)
     noise_segments = np.array(noise_segments).reshape((-1, pw))
-    return freqs, sxx, threshold, noise_segments
+    return freqs[1:len_onesided], sxx[1:len_onesided], threshold, noise_segments
 
 
-def optimal_filter(pulses, pulse_model, sf, ssf, nxx):
+def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx):
     ''' 
     This function applies an optimal filter, i.e. a frequency weighted filter, to the pulses to extract a better estimate of the pulse heights
     '''
     # Initialize important variables 
-    _, len_pulse = pulses.shape
-    len_onesided = round(len_pulse / 2) + 1
+    len_pulses = pulses.shape[-1]
+    len_model = len(pulse_model)
+    if len_pulses < len_model:
+        len_onesided = round(len_pulses / 2) + 1
+        ssf_pulses = 1
+    else:
+        len_onesided = round(len_pulses / ssf_model / 2) + 1
+        ssf_pulses = ssf_model
+
     
     # Compute normalized pulse model
     norm_pulse_model = pulse_model / np.amax(pulse_model)
 
     # Step 1: compute psd and fft of normalized peak-model
-    Mxx = psd(norm_pulse_model, sf*ssf, return_onesided=True)
-    # _, Mxx = welch(norm_pulse_model, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True)
-    Mf = fft(norm_pulse_model)[:len_onesided]
+    Mxx = psd(norm_pulse_model, sf*ssf_model)[1:len_onesided]
+    Mf = fft(norm_pulse_model)[1:len_onesided] / ssf_model
     Mf_conj = Mf.conj()
-    Mf_abs = np.absolute(Mf)
 
     # Step 2: compute fft of all pulses
-    Df = fft(pulses, axis=-1)[:, :len_onesided]
-    Dxx = psd(pulses, sf*ssf, return_onesided=True)
-    # _, Dxx = welch(pulses, fs=sf*ssf, window='hamming', nperseg=pw*ssf, noverlap=None, nfft=None, return_onesided=True, axis=1)
+    Df = fft(pulses, axis=-1)[:, 1:len_onesided] / ssf_pulses
+    Dxx = psd(pulses, sf*ssf_pulses)[:, 1:len_onesided]
     mean_Dxx = np.mean(Dxx, axis=0)
 
     # Step 3: obtain improved pulse height estimates
-    numerator = Mf_conj[:len_onesided] * Df[:, :len_onesided] / nxx[:len_onesided]
-    denominator = Mf_abs[:len_onesided]**2 / nxx[:len_onesided]
-    int_numerator = np.sum(numerator[:, 1:], axis=-1)
-    int_denominator = np.sum(denominator[1:], axis=-1)
+    numerator = Mf_conj * Df / nxx
+    denominator = Mf_conj * Mf / nxx
+    int_numerator = np.sum(numerator, axis=-1)
+    int_denominator = np.sum(denominator, axis=-1)
     H = np.real(int_numerator / int_denominator)
 
-
     # Step 4: compute signal-to-noise resolving power
-    NEP = (np.outer((1 / H)**2, (2 * nxx[:len_onesided] / Mxx[:len_onesided])))**0.5
-    dE = 2*np.sqrt(2*np.log(2)) * (np.sum(4 / NEP[:, 1:-1]**2, axis=-1))**-0.5
+    NEP = (np.outer((1 / H)**2, (2 * nxx / Mxx)))**0.5
+    dE = 2*np.sqrt(2*np.log(2)) * (np.sum(4 / NEP**2, axis=-1))**-0.5
     R_sn = np.mean(1 / dE)
 
-    chi_sq = np.sum((Df[:, 1:len_onesided] - np.outer(H, Mf[1:len_onesided]))**2 / nxx[1:len_onesided], axis=-1)
+    chi_sq = np.sum((Df - np.outer(H, Mf))**2 / nxx, axis=-1)
 
     return H, R_sn, mean_Dxx, chi_sq
 
 
-def psd(array, fs, return_onesided=True):
+def psd(array, fs):
     ''' 
     This function returns the PSD estimate using the fft for either a 1D or 2D array, see https://nl.mathworks.com/help/signal/ug/power-spectral-density-estimates-using-fft.html
     '''
@@ -617,12 +619,6 @@ def exp_decay(x, a, b):
     '''
     return a * np.exp(-b * x)
 
-
-def one_over_t(x, a, b, c):
-    ''' 
-    This is the 1/t exponential function used for bTa KIDs: y=a / ((1 + c) * exp(-b * x) - 1)
-    '''
-    return a / ((1 + c) * np.exp(b * x) - 1)
 
 
 def get_window(type, tau):

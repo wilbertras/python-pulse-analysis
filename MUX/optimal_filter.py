@@ -94,7 +94,7 @@ def pulse_height(pulse, len_onesided, optimal_filter, exclude_dc=True):
     :return H:              float, optimal pulse height
     """
     pulse_fft = fft(pulse)[exclude_dc:len_onesided]
-    H = np.real(np.sum(pulse_fft * optimal_filter))
+    H =np.sum(pulse_fft * optimal_filter).real
     return H
 
 
