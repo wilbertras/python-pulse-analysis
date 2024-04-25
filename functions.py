@@ -424,8 +424,8 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window):
     stds = 0
     noise_segments = []
     while nr_good_segments < nr_req_segments:
-        start = nr * pw
-        stop = start + pw
+        start = int(nr * pw)
+        stop = int(start + pw)
         if stop >= signal_length:  # ensure that the next segment does not run out of the available data 
             print('     WARNING: only %d/%d noise segments obtained with max_bw=%d' % (nr_good_segments, nr_req_segments, pw))
             break

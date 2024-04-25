@@ -3,7 +3,7 @@ coord:smith
 response:X
 pw:1000
 sw:250
-align:peak
+align:edge
 window:exp
 ssf:1
 sstype:interp

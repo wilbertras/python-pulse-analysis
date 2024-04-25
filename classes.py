@@ -84,7 +84,7 @@ class MKID:
         coord = settings['coord']
         pulse_length = settings['pw']
         rise_offset = settings['rise_offset']
-        pw = (pulse_length + rise_offset)
+        pw = int((pulse_length + rise_offset))
         buffer = settings['buffer']
         windowtype = settings['window']
         sw = settings['sw']
@@ -241,7 +241,7 @@ class MKID:
         pulses_range = pulses[idx_range, :]
         H_range = H[idx_range]
         mean_pulse = np.mean(pulses_range, axis=0)
-        sxx = f.psd(mean_pulse, sf*ssf)[1:round(pw/2)+1]
+        sxx = f.psd(mean_pulse, sf*ssf)[1:round(pw*sff/2)+1]
         
         ## Determine some pulse statistics
         nr_sel_pulses = len(sel_locs)
@@ -266,11 +266,11 @@ class MKID:
         R_0 = mu_opt / fwhm_0
         
         ## Fit lifetime
-        tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, fit_T)
+        tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, [T+rise_offset for T in fit_T])
         if isinstance(fit_T, (int, float)):
-            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf * sff) - rise_offset
+            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf * sff)
         elif isinstance(fit_T, (tuple, list, np.ndarray)):
-            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf * sff) - rise_offset
+            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf * sff)
         fit_x = np.arange(len(plot_x))
         fit_y = f.exp_decay(fit_x, *popt)
 
@@ -518,7 +518,8 @@ class MKID:
             pdfy = self.data['pdfy']
             bin_max = np.amax((np.amax(H), np.amax(Hopt)))
             bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
-            ax.hist(H0, bins=bin_edges, color='k', alpha=0.5, label='$\it{H}_{0}$')
+            n0 = len(H0) / len(H)
+            ax.hist(H0, color='k', alpha=0.5, label='$\it{H}_{0}$')
             ax.hist(H[idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
             ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
             ax.plot(pdfx, pdfy, c='k', ls='--', lw=0.5, label='KDE')
