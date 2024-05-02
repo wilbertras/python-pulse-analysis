@@ -60,7 +60,7 @@ class GUI:
                 locs, props = find_peaks(X, height=mph, prominence=mph) 
                 heights = props['peak_heights']
                 nr_peaks = len(heights)
-                ax.scatter(locs, heights, marker='v', c='None', edgecolors='tab:green', lw=2, label='%d peaks' % nr_peaks, zorder=3)
+                ax.scatter(locs, heights, marker='v', c='None', edgecolors='tab:green', lw=1, label='%d peaks' % nr_peaks, zorder=3)
                 ax.axhline(mph, color='tab:red', lw=1, label='threshold', zorder=2)
             ax.legend()
             ax.set_xlabel('')
