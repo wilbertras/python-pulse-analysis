@@ -1,2 +1,2 @@
 @echo off
-call C:\Users\wilbertr\ownCloud2\PhD\PhD\PythonProjects\python-pulse-analysis\.venv\Scripts\activate.bat
+call "D:\JBtests_labview\Visible KIDs\python-pulse-analysis\.venv\Scripts\activate.bat"
