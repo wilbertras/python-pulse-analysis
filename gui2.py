@@ -43,8 +43,8 @@ class GUI:
         if path:
             self.dark_dir = path
             print("file selected:", path)
-            A, theta = f.bin2mat(path)
-            R, X = f.smith_coord(A, theta)
+            amp, theta = f.bin2mat(path)
+            _, X = f.smith_coord(theta, amp)
             fig, ax = plt.subplots(figsize=(6, 3), constrained_layout=True)
             ax.plot(X, lw=.5, label='Im(z)', zorder=0)
             max = np.ceil(np.amax(X))
