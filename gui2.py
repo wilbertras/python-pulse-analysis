@@ -12,9 +12,6 @@ class GUI:
         self.master = master
         self.master.title("Data Visualization GUI")
 
-        self.data = None
-        self.settings = None
-
         self.file_path = ""
 
         path_label = tk.Label(self.master, text='file path')
@@ -38,11 +35,12 @@ class GUI:
 
     def select_directory(self):
         path = filedialog.askopenfilename()
+        name = path.split('/')[-1]
         sw = f.ensure_type(self.smooth_entry.get(), int)
         nr_stds = f.ensure_type(self.thres_entry.get(), int)
         if path:
             self.dark_dir = path
-            print("file selected:", path)
+            print("file selected:", name)
             amp, theta = f.bin2mat(path)
             _, X = f.smith_coord(theta, amp)
             fig, ax = plt.subplots(figsize=(10, 3), constrained_layout=True)
@@ -65,35 +63,8 @@ class GUI:
             ax.legend()
             ax.set_xlabel('')
             ax.set_ylabel('Response')
-            ax.set_title(path.split('/')[-1])
+            ax.set_title(name)
             plt.show()
-
-    def load_data(self):
-        light_dir = filedialog.askdirectory()
-        if light_dir:
-            print("Directory selected:", light_dir)
-
-    def load_data(self):
-        for i, entry in enumerate(self.entries):
-            self.settings[self.labels[i]] = entry.get()
-        self.mkid = MKID(int(self.settings['LT']), 
-                        int(self.settings['wavelength']), 
-                        self.light_dir, 
-                        self.dark_dir, 
-                        int(self.settings['kid_nr']), 
-                        int(self.settings['pread']), 
-                        self.settings['comment'], 
-                        int(self.settings['chuncksize']))
-
-    def overview(self):
-        self.mkid.overview(self.settings, f, max_chuncks=int(self.settings['max_chuncks']))   
-        plt.show()
-
-    def save_fig(self):
-        filename = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG files", "*.png"), ("All files", "*.*")])
-        if filename:
-            plt.savefig(filename)
-            print("Figure saved successfully.")
 
 
 def main():
