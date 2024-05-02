@@ -36,6 +36,63 @@ def get_info(file_path):
     return info
 
 
+def ensure_type(input_value, preferred_types):
+    """
+    Convert input_value to the preferred data type from the list of preferred_types.
+    
+    Parameters:
+        input_value (any): The input value to be converted.
+        preferred_types (list): A list of preferred data types. Can include int, float, str, list, tuple, None.
+        
+    Returns:
+        The input_value converted to the preferred data type, or None if conversion fails.
+    """
+    if isinstance(preferred_types, type):
+        preferred_types = [preferred_types]
+    elif preferred_types == None:
+        return None
+    if input_value == None:
+        if any(type is None for type in preferred_types):
+            return input_value
+        else:
+            raise Exception('Cant convert NoneType to preferred types')
+    elif isinstance(input_value, str):
+        values = input_value.split()
+        if len(values) == 0 or input_value == 'None':
+            return None
+        elif len(values) == 1:
+            pass
+        else: 
+            try:
+                input_value = [int(value) for value in values]
+            except:
+                input_value = [float(value) for value in values]
+    if any(isinstance(input_value, type) for type in preferred_types):
+        return input_value
+
+    for data_type in preferred_types:
+        try:
+            if data_type == int:
+                return int(input_value)
+            elif data_type == float:
+                return float(input_value)
+            elif data_type == str:
+                return str(input_value)
+            elif data_type == list:
+                return list(input_value)
+            elif data_type == tuple:
+                return tuple(input_value)
+            elif data_type == np.ndarray:
+                return np.array(input_value)
+            elif data_type == None:
+                return None
+            else:
+                raise ValueError("Unsupported data type")
+        except (ValueError, TypeError):
+            continue
+    raise Exception('Could not convert data type')
+
+
 def bin2mat(file_path):
     data = np.fromfile(file_path, dtype='>f8', count=-1)
     data = data.reshape((-1, 2))
@@ -46,7 +103,6 @@ def bin2mat(file_path):
     # From I and Q data to Radius/Magnitude and Phase
     r = np.sqrt(I**2 + Q**2)
     R = r/np.mean(r) # Normalize radius to 1
-
 
     P = np.arctan2(Q, I) 
     P = np.pi - P % (2 * np.pi) # Convert phase to be taken from the negative I axis
@@ -626,10 +682,12 @@ def get_window(type, tau):
         M = int(tau / 2)
         y = windows.boxcar(M, sym=False)
         y /= np.sum(y)
-    if type == 'exp':
+    elif type == 'exp':
         M = int(tau*3)
         y = windows.exponential(M, center=0, tau=tau, sym=False)
         y /= np.sum(y)
+    else:
+        raise Exception('Windowtype was given as %s. Please input a correct window type: "exp" or "box"' % type)
     return y[::-1]
 
 
@@ -666,7 +724,7 @@ def load_dictionary_from_file(file_path):
             dictionary = pickle.load(file)
             return dictionary
     except FileNotFoundError:
-        print(f"File '{file_path}' not found.")
+        print(f"File '{file_path}' not found")
         return None
     except Exception as e:
         print(f"An error occurred: {e}")

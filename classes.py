@@ -18,17 +18,17 @@ class MKID:
         elif file_path is None:
             [LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize] = args
             self.data = {}
-            self.data['LT'] = LT
-            self.data['wl'] = wl
-            self.data['KID'] = kid_nr
-            self.data['pread'] = pread
-            self.data['date'] = date
+            self.data['LT'] = int(LT)
+            self.data['wl'] = int(wl)
+            self.data['KID'] = int(kid_nr)
+            self.data['pread'] = int(pread)
+            self.data['date'] = str(date)
             self.data['name'] = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
             self.chunckwise_peakmodel = False
             self.existing_peak_model = False
-            self.chuncksize = chuncksize
+            self.chuncksize = int(chuncksize)
             self.max_chuncks = None
-            self.discard_saturated = discard_saturated
+            self.discard_saturated = bool(discard_saturated)
 
             self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
             nr_dark_loaded = len(self.dark_files)
@@ -77,43 +77,42 @@ class MKID:
     def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
         print('----------------STARTED----------------')
         tstart = time.time()
-        sf = settings['sf']
+        sf = f.ensure_type(settings['sf'], int)
         sff = int(sf / 1e6)
-        settings['sff'] = sff
-        response = settings['response']
-        coord = settings['coord']
-        pulse_length = settings['pw']
-        rise_offset = settings['rise_offset']
+        settings['sff'] = f.ensure_type(sff, int)
+        response = f.ensure_type(settings['response'], str)
+        coord = f.ensure_type(settings['coord'], str)
+        pulse_length = f.ensure_type(settings['pw'], int)
+        rise_offset = f.ensure_type(settings['rise_offset'], int)
         pw = int((pulse_length + rise_offset))
-        buffer = settings['buffer']
-        windowtype = settings['window']
-        sw = settings['sw']
+        buffer = f.ensure_type(settings['buffer'], int)
+        windowtype = f.ensure_type(settings['window'], str)
+        sw = f.ensure_type(settings['sw'], int)
         if sw and sw > 1:
             window = f.get_window(windowtype, sw*sff)
         else:
             sw = 0
             window = None
-        ssf = settings['ssf']
+        ssf = f.ensure_type(settings['ssf'], int)
         if ssf and ssf > 1:
             pass
         else:
             ssf = 1
             settings['ssf'] = 1
-        align = settings['align'] 
+        align = f.ensure_type(settings['align'], str)
         if align == 'peak':
             ssf = 1
             settings['ssf'] = ssf
-        sstype = settings['sstype']
-        mph = settings['mph']
-        mpp = settings['mpp']
-        nr_noise_segments = settings['nr_noise_segments']
-        binsize = settings['binsize']
-        H_range = settings['H_range']
-        fit_T = np.array(settings['fit_T'])
-        max_bw = settings['max_bw']
-        filter_std = settings['filter_std']
+        sstype = f.ensure_type(settings['sstype'], str)
+        mph = f.ensure_type(settings['mph'], float)
+        mpp = f.ensure_type(settings['mpp'], float)
+        nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)
+        binsize = f.ensure_type(settings['binsize'], float)
+        H_range = f.ensure_type(settings['H_range'], (int, list, tuple))
+        fit_T = f.ensure_type(settings['fit_T'], (int, np.ndarray))
+        max_bw = f.ensure_type(settings['max_bw'], int)
+        filter_std = f.ensure_type(settings['filter_std'], int)
         self.settings = settings
-
 
         self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
         first_sec = int(1 * sf)
@@ -323,9 +322,9 @@ class MKID:
         print('----------------FINISHED (IN %d s)----------------' % telapsed)
 
     def plot_overview(self):
-        sw = self.settings['sw']
-        tlim = self.settings['tlim']
-        binsize = self.settings['binsize']
+        sw = f.ensure_type(self.settings['sw'], int)
+        tlim = f.ensure_type(self.settings['tlim'], (int, np.ndarray))
+        binsize = f.ensure_type(self.settings['binsize'], float)
         fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 10))
         fig.suptitle('Overview: %s' % (self.data['name']))
         self.plot_timestream(axes['A'], 'light', tlim)
@@ -344,13 +343,9 @@ class MKID:
 
 
     def plot_timestream(self, ax, type, tlim=(0, 1)):
-        sf = self.settings['sf']
-        pl = self.settings['pw']
-        rise_offset = self.settings['rise_offset']
-        pw = pl + rise_offset
-        mph = self.settings['mph']
-        sw = self.settings['sw']
-        H = self.data['H']
+        sf = f.ensure_type(self.settings['sf'], int)
+        mph = f.ensure_type(self.settings['mph'], float)
+        sw = f.ensure_type(self.settings['sw'], int)
         H_smoothed = self.data['H_smoothed']
         window = self.data['window']
 
@@ -403,8 +398,8 @@ class MKID:
 
 
     def plot_stacked_pulses(self, ax):
-        pw = self.settings['pw']
-        rise_offset = self.settings['rise_offset']
+        pw = f.ensure_type(self.settings['pw'], int)
+        rise_offset = f.ensure_type(self.settings['rise_offset'], int)
         pulses = self.data['pulses']
         idx_range = self.data['idx_range']
         pulses = pulses[idx_range]
@@ -424,6 +419,7 @@ class MKID:
     
 
     def plot_psds(self, ax):
+        sf = f.ensure_type(self.settings['sf'], int)
         sxx = self.data['sxx']
         fxx = self.data['fxx']
         nxx = self.data['nxx']
@@ -432,7 +428,7 @@ class MKID:
         ax.semilogx(fxx, 10*np.log10(nxx), label='$\it N(f)$')
         ax.semilogx(fxx, 10*np.log10(mean_dxx), label='$\it D(f)$')
         ax.set_ylim([10*np.log10(np.amin(nxx)), 10*np.log10(np.amax(sxx))])
-        ax.set_xlim([fxx[1], .5*self.settings['sf']])
+        ax.set_xlim([fxx[1], .5*sf])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)
         ax.xaxis.get_major_locator().set_params(numticks=99)
@@ -444,8 +440,8 @@ class MKID:
     
 
     def plot_mean_pulse(self, ax, type):
-        pw = self.settings['pw']
-        rise_offset = self.settings['rise_offset']
+        pw = f.ensure_type(self.settings['pw'], int)
+        rise_offset = f.ensure_type(self.settings['rise_offset'], int)
         mean_pulse = self.data['mean_pulse']
         fitx = self.data['fitx']
         fity = self.data['fity']
@@ -466,10 +462,10 @@ class MKID:
 
 
     def plot_hist(self, ax, type, binsize):
-        mph = self.settings['mph']
+        mph = f.ensure_type(self.settings['mph'], float)
+        H_range = f.ensure_type(self.settings['H_range'], (int, list))
         dark_threshold = self.data['dark_threshold']
         idx_range = self.data['idx_range']
-        H_range = self.settings['H_range']
         if H_range:
             if isinstance(H_range, (int, float)):
                 lim = H_range 
