@@ -58,8 +58,12 @@ class GUI:
     def select_directory(self):
         path = filedialog.askopenfilename()
         info_path = path[:-4] + '_info.dat'
-        info = f.get_info(info_path)
-        sf = int(info['fs'])
+        try:
+            info = f.get_info(info_path)
+            sf = int(info['fs'])
+        except:
+            print('No info file found, taking sf=1e6')
+            sf = int(1e6)
         dt = 1 / sf * 1e6
         tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
         window = f.ensure_type(self.selected_option.get(), str)
