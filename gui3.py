@@ -123,7 +123,7 @@ class GUI:
                 plot_locs = locs < plot_idx
                 ax.scatter(locs[plot_locs] / sf, heights[plot_locs], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
                 ax.axhline(mph, color='tab:red', lw=1, label='threshold', zorder=2)
-            ax.legend()
+            ax.legend(loc='upper right')
             ax = axes['b']
             ax.hist(heights, 'auto', facecolor='tab:green', label='Nph=%.f cps' % peak_rate, orientation=u'horizontal')
             ax.set_xlabel('Counts')
