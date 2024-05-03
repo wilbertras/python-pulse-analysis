@@ -61,7 +61,7 @@ class GUI:
         info = f.get_info(info_path)
         sf = int(info['fs'])
         dt = 1 / sf * 1e6
-        tqp = f.ensure_type(self.smooth_entry.get(), int)
+        tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
         window = f.ensure_type(self.selected_option.get(), str)
         if tqp:
             sw = int(tqp / dt)
@@ -73,7 +73,7 @@ class GUI:
         pw = int(pw / dt)
         if path:
             name = path.split('/')[-1]
-            if nr_files > 1:
+            if (nr_files > 1) and ('vis' in name):
                 dir = '/'.join(path.split('/')[:-1]) 
                 base = '_'.join(name.split('_')[:2])
                 files = glob(dir + '/' + base + '__TDvis' + '*.bin')

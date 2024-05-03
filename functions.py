@@ -36,7 +36,7 @@ def get_info(file_path):
     return info
 
 
-def ensure_type(input_value, preferred_types):
+def ensure_type(input_value, preferred_types, orNoneType=False):
     """
     Convert input_value to the preferred data type from the list of preferred_types.
     
@@ -90,9 +90,10 @@ def ensure_type(input_value, preferred_types):
                 raise ValueError("Unsupported data type")
         except (ValueError, TypeError):
             continue
-    
-    print('WARNING: Could not convert data type')
-    return None
+    if orNoneType:
+        return None
+    else:
+        print('WARNING: Could not convert data type')
 
 
 def bin2mat(file_path):
@@ -687,7 +688,7 @@ def get_window(type, tau):
     elif type == 'exp':
         M = int(tau*3)
         y = windows.exponential(M, center=0, tau=tau, sym=False)
-        y /= np.sum(y)
+        y /= np.sum(y) 
     else:
         raise Exception('Windowtype was given as %s. Please input a correct window type: "exp" or "box"' % type)
     return y[::-1]
