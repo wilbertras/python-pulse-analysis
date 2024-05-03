@@ -90,7 +90,9 @@ def ensure_type(input_value, preferred_types):
                 raise ValueError("Unsupported data type")
         except (ValueError, TypeError):
             continue
-    raise Exception('Could not convert data type')
+    
+    print('WARNING: Could not convert data type')
+    return None
 
 
 def bin2mat(file_path):
