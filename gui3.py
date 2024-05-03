@@ -70,7 +70,6 @@ class GUI:
         nr_stds = f.ensure_type(self.thres_entry.get(), int)
         nr_files = f.ensure_type(self.nrfiles_entry.get(), int)
         pw = f.ensure_type(self.window_entry.get(), int)
-        pw = int(pw / dt)
         if path:
             name = path.split('/')[-1]
             if (nr_files > 1) and ('vis' in name):
@@ -126,27 +125,29 @@ class GUI:
             ax.set_xlabel('Counts')
             ax.legend()
             ax.set_title('Heights vis%d-%d' % (0, nr_files))
-            pulses = []
-            offset = int(np.ceil(int(25 / dt)))
-            for i, loc in enumerate(locs):
-                too_close = 0
-                if  i < nr_peaks-1 and loc + pw + offset >= locs[i+1] and loc + pw <= nr_points and loc - offset >= 0:
-                    too_close += 1
-                else:
-                    pulses.append(X[loc-offset:loc+pw])
-            if too_close:
-                print('%d peaks too close' % too_close)
-            pulses = np.array(pulses).reshape((-1, pw+offset))
-            mean_pulse = np.mean(pulses, axis=0)
-            ax = axes['c']
-            t_pulse = np.linspace(-offset*dt, pw*dt, len(mean_pulse))
-            ax.plot(t_pulse, mean_pulse)
-            ax.set_xlabel('time [$\mu s$]')
-            ax.set_xlim([t_pulse[0], t_pulse[-1]])
-            inset = ax.inset_axes([.5, .5, .45, .45])
-            inset.semilogy(t_pulse, mean_pulse)
-            inset.set_xlim([t_pulse[0], t_pulse[-1]])
-            ax.set_title('mean pulse shape')
+            if pw:
+                pw = int(pw / dt)
+                pulses = []
+                offset = int(np.ceil(int(25 / dt)))
+                for i, loc in enumerate(locs):
+                    too_close = 0
+                    if  i < nr_peaks-1 and loc + pw + offset >= locs[i+1] and loc + pw <= nr_points and loc - offset >= 0:
+                        too_close += 1
+                    else:
+                        pulses.append(X[loc-offset:loc+pw])
+                if too_close:
+                    print('%d peaks too close' % too_close)
+                pulses = np.array(pulses).reshape((-1, pw+offset))
+                mean_pulse = np.mean(pulses, axis=0)
+                ax = axes['c']
+                t_pulse = np.linspace(-offset*dt, pw*dt, len(mean_pulse))
+                ax.plot(t_pulse, mean_pulse)
+                ax.set_xlabel('time [$\mu s$]')
+                ax.set_xlim([t_pulse[0], t_pulse[-1]])
+                inset = ax.inset_axes([.5, .5, .45, .45])
+                inset.semilogy(t_pulse, mean_pulse)
+                inset.set_xlim([t_pulse[0], t_pulse[-1]])
+                ax.set_title('mean pulse shape')
             plt.show()
 
 
