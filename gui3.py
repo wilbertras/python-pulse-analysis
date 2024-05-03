@@ -115,7 +115,7 @@ class GUI:
                     locs, props = find_peaks(X, height=mph, prominence=mph) 
                     heights = props['peak_heights']
                 nr_peaks = len(heights)
-                peak_rate = nr_peaks / nr_files
+                peak_rate = nr_peaks / (nr_points / sf)
                 plot_locs = locs < plot_idx
                 ax.scatter(locs[plot_locs] / sf, heights[plot_locs], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
                 ax.axhline(mph, color='tab:red', lw=1, label='threshold', zorder=2)
