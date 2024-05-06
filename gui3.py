@@ -93,7 +93,8 @@ class GUI:
             _, X = f.smith_coord(theta, amp)
             nr_points = len(X)
             t = np.arange(nr_points) / sf
-            plot_idx = int(nr_points / nr_files)
+            # plot_idx = int(nr_points / nr_files)
+            plot_idx = int(nr_points)
             max = np.ceil(np.amax(X[:plot_idx]))
             min = (np.amin(X[:plot_idx]) // -.5 + 1) *-.5
             
