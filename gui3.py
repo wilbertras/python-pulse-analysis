@@ -129,7 +129,7 @@ class GUI:
             ax.hist(heights, 'auto', facecolor='tab:green', label='Nph=%.f cps' % peak_rate, orientation=u'horizontal')
             ax.set_xlabel('Counts')
             ax.legend()
-            ax.set_title('Heights vis%d-%d' % (0, nr_files))
+            ax.set_title('Heights, %d files' % (nr_files))
             if pw:
                 pw = int(pw / dt)
                 pulses = []
@@ -142,7 +142,6 @@ class GUI:
                         pulses.append(X[loc-offset:loc+pw])
                 if too_close:
                     print('%d peaks too close' % too_close)
-                
                 pulses = np.array(pulses).reshape((-1, pw+offset))
                 if nr_peaks:
                     mean_pulse = np.mean(pulses, axis=0)
