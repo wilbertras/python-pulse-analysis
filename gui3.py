@@ -22,11 +22,17 @@ class GUI:
         self.window_entry.insert(0, 200)
         self.window_entry.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-        thres_label = tk.Label(self.master, text='threshold [# \u03C3]')
+        thres_label = tk.Label(self.master, text='threshold')
         thres_label.grid(row=0, column=2, sticky="w", padx=5, pady=5)
         self.thres_entry = tk.Entry(self.master)
         self.thres_entry.insert(0, 3)
         self.thres_entry.grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        thres_units = ["stds", "resp"]
+        self.thres_unit = tk.StringVar(self.master)
+        self.thres_unit.set(thres_units[0])  # Set initial value
+        self.thres_unit_menu = tk.OptionMenu(self.master, self.thres_unit, *thres_units)
+        self.thres_unit_menu.grid(row=0, column=4, sticky="w", padx=5, pady=5)
 
 
         smooth_label = tk.Label(self.master, text='lifetime \n for smoothing [us]')
@@ -36,11 +42,11 @@ class GUI:
         self.smooth_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
 
         windowtypes = ["box", "exp"]
-        self.selected_option = tk.StringVar(self.master)
-        self.selected_option.set(windowtypes[0])  # Set initial value
+        self.windowtype = tk.StringVar(self.master)
+        self.windowtype.set(windowtypes[0])  # Set initial value
         windowtype_label = tk.Label(self.master, text='window type')
         windowtype_label.grid(row=1, column=2, sticky="w", padx=5, pady=5)
-        self.windowtype_menu = tk.OptionMenu(self.master, self.selected_option, *windowtypes)
+        self.windowtype_menu = tk.OptionMenu(self.master, self.windowtype, *windowtypes)
         self.windowtype_menu.grid(row=1, column=3, sticky="w", padx=5, pady=5)
 
 
@@ -66,12 +72,12 @@ class GUI:
             sf = int(1e6)
         dt = 1 / sf * 1e6
         tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
-        window = f.ensure_type(self.selected_option.get(), str)
+        window = f.ensure_type(self.windowtype.get(), str)
         if tqp:
-            sw = int(tqp / dt)
             filter = f.get_window(window, tqp)
             sw = len(filter)
-        nr_stds = f.ensure_type(self.thres_entry.get(), int)
+        thres = f.ensure_type(self.thres_entry.get(), (float, int))
+        thres_unit = f.ensure_type(self.thres_unit.get(), str)
         nr_files = f.ensure_type(self.nrfiles_entry.get(), int)
         pw = f.ensure_type(self.window_entry.get(), int)
         if path:
@@ -110,22 +116,30 @@ class GUI:
             if tqp:
                 Xsmooth = convolve(X, filter, mode='valid')
                 ax.plot(t[:plot_idx-sw], Xsmooth[:plot_idx-sw], lw=.5, label='smoothed Im(z)', zorder=1)
-            if nr_stds:
+            if thres:
+                if thres_unit == 'stds':
+                    if tqp:
+                        mph = thres * np.std(Xsmooth)
+                    else:
+                        mph = thres * np.std(X)
+                elif thres_unit == 'resp':
+                    mph = thres
+
                 if tqp:
-                    mph = nr_stds * np.std(Xsmooth)
                     locs, props = find_peaks(Xsmooth, height=mph, prominence=mph) 
                     heights = X[locs]
                 else:
-                    mph = nr_stds * np.std(X)
                     locs, props = find_peaks(X, height=mph, prominence=mph) 
                     heights = props['peak_heights']
                 nr_peaks = len(heights)
                 peak_rate = nr_peaks / (nr_points / sf)
                 plot_locs = locs < plot_idx
-                ax.scatter(locs[plot_locs] / sf, heights[plot_locs], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
-                ax.axhline(mph, color='tab:red', lw=1, label='threshold', zorder=2)
+                ax.axhline(mph, color='tab:red', lw=1, label='mph=%.2f' % mph, zorder=2)
             ax.legend(loc='upper right')
             ax = axes['b']
+            if thres:
+                ax.axhline(mph, color='tab:red', lw=1, label='mph=%.2f' % mph, zorder=2)
+            ax.axhline(0, color='k', lw=0.5, zorder=0)
             ax.hist(heights, 'auto', facecolor='tab:green', label='Nph=%.f cps' % peak_rate, orientation=u'horizontal')
             ax.set_xlabel('Counts')
             ax.legend()
@@ -135,17 +149,29 @@ class GUI:
                 pulses = []
                 offset = int(np.ceil(int(25 / dt)))
                 too_close = 0
+                single_pulse = np.zeros(nr_peaks, dtype=bool)
                 for i, loc in enumerate(locs):
-                    if  i < nr_peaks-1 and loc + pw + offset >= locs[i+1] and loc + pw <= nr_points and loc - offset >= 0:
+                    if  i < nr_peaks - 1 and i > 0 and (loc + pw >= locs[i+1] or loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
+                        too_close += 1
+                    elif i == 0 and (loc + pw >= locs[i+1] or loc + pw >= nr_points or loc - offset < 0):
+                        too_close += 1
+                    elif i == nr_peaks - 1 and (loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
                         too_close += 1
                     else:
-                        pulses.append(X[loc-offset:loc+pw])
+                        single_pulse[i] = 1
+                        pulse = X[loc-offset:loc+pw]
+                        pulses.append(pulse)
                 if too_close:
                     print('%d peaks too close' % too_close)
-                pulses = np.array(pulses).reshape((-1, pw+offset))
+                    axes['a'].scatter(locs[single_pulse] / sf, heights[single_pulse], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
+                    axes['a'].scatter(locs[~single_pulse] / sf, heights[~single_pulse], marker='v', c='None', edgecolors='tab:red', lw=1, label='too close', zorder=3)
+                    axes['a'].legend(loc='upper right')
+                pulses = np.array(pulses)
+                pulses = pulses.reshape((-1, pw+offset))
                 if nr_peaks:
                     mean_pulse = np.mean(pulses, axis=0)
                     ax = axes['c']
+                    ax.axhline(0, color='k', lw=0.5, zorder=0)
                     t_pulse = np.linspace(-offset*dt, pw*dt, len(mean_pulse))
                     ax.plot(t_pulse, mean_pulse)
                     ax.set_xlabel('time [$\mu s$]')
