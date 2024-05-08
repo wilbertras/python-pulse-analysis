@@ -1,10 +1,10 @@
 import tkinter as tk
 from tkinter import filedialog
-from classes import MKID
 import functions as f
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import convolve, find_peaks
+from scipy.optimize import curve_fit
 from glob import glob
 import re
 
@@ -19,13 +19,13 @@ class GUI:
         window_label = tk.Label(self.master, text='pulse window [us]')
         window_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.window_entry = tk.Entry(self.master)
-        self.window_entry.insert(0, 200)
+        self.window_entry.insert(0, 1000)
         self.window_entry.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
         thres_label = tk.Label(self.master, text='threshold')
         thres_label.grid(row=0, column=2, sticky="w", padx=5, pady=5)
         self.thres_entry = tk.Entry(self.master)
-        self.thres_entry.insert(0, 3)
+        self.thres_entry.insert(0, 5)
         self.thres_entry.grid(row=0, column=3, sticky="w", padx=5, pady=5)
 
         thres_units = ["stds", "resp"]
@@ -63,18 +63,19 @@ class GUI:
 
     def select_directory(self):
         path = filedialog.askopenfilename()
+        if path[-4:] != '.bin':
+            raise Exception('Please select a .bin file')
         info_path = path[:-4] + '_info.dat'
         try:
             info = f.get_info(info_path)
             sf = int(info['fs'])
         except:
-            print('No info file found, taking sf=1e6')
-            sf = int(1e6)
-        dt = 1 / sf * 1e6
+            sf = f.ensure_type(input('No info file found, please input the sampling frequency as integer: \n'), int)
+        dt = int(1 / sf * 1e6)
         tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
         window = f.ensure_type(self.windowtype.get(), str)
         if tqp:
-            filter = f.get_window(window, tqp)
+            filter = f.get_window(window, int(tqp / dt))
             sw = len(filter)
         thres = f.ensure_type(self.thres_entry.get(), (float, int))
         thres_unit = f.ensure_type(self.thres_unit.get(), str)
@@ -102,7 +103,8 @@ class GUI:
             # plot_idx = int(nr_points / nr_files)
             plot_idx = int(nr_points)
             max = np.ceil(np.amax(X[:plot_idx]))
-            min = (np.amin(X[:plot_idx]) // -.5 + 1) *-.5
+            max = (np.amax(X[:plot_idx]) // .5 + 1) *.5
+            min = (np.amin(X[:plot_idx]) // -.1 + 1) *-.1
             
             fig, axes = plt.subplot_mosaic('aabc', figsize=(12, 3), constrained_layout=True, sharey=True)
             ax = axes['a']
@@ -126,60 +128,80 @@ class GUI:
                     mph = thres
 
                 if tqp:
-                    locs, props = find_peaks(Xsmooth, height=mph, prominence=mph) 
+                    locs, props = find_peaks(Xsmooth, height=mph, prominence=mph/2) 
                     heights = X[locs]
                 else:
-                    locs, props = find_peaks(X, height=mph, prominence=mph) 
+                    locs, props = find_peaks(X, height=mph, prominence=mph/2) 
                     heights = props['peak_heights']
                 nr_peaks = len(heights)
                 peak_rate = nr_peaks / (nr_points / sf)
-                plot_locs = locs < plot_idx
-                ax.axhline(mph, color='tab:red', lw=1, label='mph=%.2f' % mph, zorder=2)
+                ax.axhline(mph, color='tab:red', lw=1, label='mph=%.3f' % mph, zorder=2)
             ax.legend(loc='upper right')
             ax = axes['b']
-            if thres:
-                ax.axhline(mph, color='tab:red', lw=1, label='mph=%.2f' % mph, zorder=2)
-            ax.axhline(0, color='k', lw=0.5, zorder=0)
-            ax.hist(heights, 'auto', facecolor='tab:green', label='Nph=%.f cps' % peak_rate, orientation=u'horizontal')
-            ax.set_xlabel('Counts')
-            ax.legend()
-            ax.set_title('Heights, %d files' % (nr_files))
-            if pw:
+            if thres and pw:
+                ax.axhline(mph, color='tab:red', lw=1, zorder=2)
+                ax.axhline(0, color='k', lw=0.5, zorder=0)
+                ax.hist(heights, 'auto', facecolor='tab:blue', label='$N_{ph}$=%.f cps' % peak_rate, orientation=u'horizontal')
+                ax.set_xlabel('Counts')
+                ax.legend()
+                ax.set_title('Heights, %d files' % (nr_files))
+                
                 pw = int(pw / dt)
                 pulses = []
-                offset = int(np.ceil(int(25 / dt)))
+                offset = int(np.ceil(50 / dt))
                 too_close = 0
-                single_pulse = np.zeros(nr_peaks, dtype=bool)
+                single_pulses = np.zeros(nr_peaks, dtype=bool)
                 for i, loc in enumerate(locs):
-                    if  i < nr_peaks - 1 and i > 0 and (loc + pw >= locs[i+1] or loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
-                        too_close += 1
-                    elif i == 0 and (loc + pw >= locs[i+1] or loc + pw >= nr_points or loc - offset < 0):
-                        too_close += 1
-                    elif i == nr_peaks - 1 and (loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
-                        too_close += 1
-                    else:
-                        single_pulse[i] = 1
+                    too_close = 0
+                    if  i < nr_peaks - 1 and i > 0: 
+                        if (loc + pw >= locs[i+1] or loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
+                            too_close = 1
+                    elif i == 0:
+                        if nr_peaks > 1:
+                            if (loc + pw >= locs[i+1] or loc + pw >= nr_points or loc - offset < 0):
+                                too_close = 1
+                        else:
+                            if (loc + pw >= nr_points or loc - offset < 0):
+                                too_close = 1
+                    elif i == nr_peaks - 1: 
+                        if (loc - pw - offset <= locs[i-1] or loc + pw >= nr_points or loc - offset < 0):
+                            too_close = 1 
+                    if not too_close:                    
+                        single_pulses[i] = 1
                         pulse = X[loc-offset:loc+pw]
                         pulses.append(pulse)
-                if too_close:
-                    print('%d peaks too close' % too_close)
-                    axes['a'].scatter(locs[single_pulse] / sf, heights[single_pulse], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
-                    axes['a'].scatter(locs[~single_pulse] / sf, heights[~single_pulse], marker='v', c='None', edgecolors='tab:red', lw=1, label='too close', zorder=3)
-                    axes['a'].legend(loc='upper right')
+                nr_too_close = np.sum(~single_pulses)
+                axes['a'].scatter(locs[single_pulses] / sf, heights[single_pulses], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
+                if nr_too_close:
+                    print('%d peaks too close' % nr_too_close)
+                    axes['a'].scatter(locs[~single_pulses] / sf, heights[~single_pulses], marker='v', c='None', edgecolors='tab:red', lw=1, label='too close', zorder=3)
+                axes['a'].legend(loc='upper right')
+                ax.hist(heights[single_pulses], 'auto', facecolor='tab:green', label='singles', orientation=u'horizontal')
                 pulses = np.array(pulses)
                 pulses = pulses.reshape((-1, pw+offset))
-                if nr_peaks:
+                nr_sel_pulses = pulses.shape[0]
+                if nr_sel_pulses:
                     mean_pulse = np.mean(pulses, axis=0)
+                    fit_l = int(0.1*pw)
+                    fit_r = int(0.5*pw)
+                    fit_x = np.arange(fit_l, fit_r)
+                    fit_y = mean_pulse[fit_l+offset:fit_r+offset]
+                    popt, _ = curve_fit(f.exp_decay, (fit_x-fit_l)*dt, fit_y)
+                    tau = 1 / popt[1]
+                    fit_y = f.exp_decay((fit_x-fit_l)*dt, *popt)
                     ax = axes['c']
                     ax.axhline(0, color='k', lw=0.5, zorder=0)
                     t_pulse = np.linspace(-offset*dt, pw*dt, len(mean_pulse))
                     ax.plot(t_pulse, mean_pulse)
+                    ax.plot(fit_x*dt, fit_y, ls='--', c='tab:orange', label='$\\tau_{qp}$=%d $\mu$s' % tau)
                     ax.set_xlabel('time [$\mu s$]')
                     ax.set_xlim([t_pulse[0], t_pulse[-1]])
                     inset = ax.inset_axes([.5, .5, .45, .45])
                     inset.semilogy(t_pulse, mean_pulse)
+                    inset.semilogy(fit_x*dt, fit_y, ls='--', c='tab:orange')
                     inset.set_xlim([t_pulse[0], t_pulse[-1]])
                     ax.set_title('mean pulse shape')
+                    ax.legend(loc='lower right')
             plt.show()
 
 
