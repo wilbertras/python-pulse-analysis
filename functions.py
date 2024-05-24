@@ -52,7 +52,7 @@ def ensure_type(input_value, preferred_types, orNoneType=False):
     elif preferred_types == None:
         return None
     if input_value == None:
-        if any(type is None for type in preferred_types):
+        if orNoneType:
             return input_value
         else:
             raise Exception('Cant convert NoneType to preferred types')
@@ -253,7 +253,7 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
         smoothed_signal = signal
 
     # Find peaks in data
-    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=mph, prominence=mpp)
+    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=mph, prominence=mpp/2)
     pks_smoothed = props_smoothed['peak_heights']
     nr_pulses = len(locs_smoothed)
     det_locs = copy(locs_smoothed)

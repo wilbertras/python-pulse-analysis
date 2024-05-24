@@ -104,11 +104,11 @@ class MKID:
             ssf = 1
             settings['ssf'] = ssf
         sstype = f.ensure_type(settings['sstype'], str)
-        mph = f.ensure_type(settings['mph'], float)
-        mpp = f.ensure_type(settings['mpp'], float)
+        mph = f.ensure_type(settings['mph'], float, orNoneType=True)
+        mpp = f.ensure_type(settings['mpp'], float, orNoneType=True)
         nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)
         binsize = f.ensure_type(settings['binsize'], float)
-        H_range = f.ensure_type(settings['H_range'], (int, list, tuple))
+        H_range = f.ensure_type(settings['H_range'], (int, list, tuple), orNoneType=True)
         fit_T = f.ensure_type(settings['fit_T'], (int, np.ndarray))
         max_bw = f.ensure_type(settings['max_bw'], int)
         filter_std = f.ensure_type(settings['filter_std'], int)
@@ -344,7 +344,7 @@ class MKID:
 
     def plot_timestream(self, ax, type, tlim=(0, 1)):
         sf = f.ensure_type(self.settings['sf'], int)
-        mph = f.ensure_type(self.settings['mph'], float)
+        mph = f.ensure_type(self.settings['mph'], float, orNoneType=True)
         sw = f.ensure_type(self.settings['sw'], int)
         H_smoothed = self.data['H_smoothed']
         window = self.data['window']
@@ -462,8 +462,8 @@ class MKID:
 
 
     def plot_hist(self, ax, type, binsize):
-        mph = f.ensure_type(self.settings['mph'], float)
-        H_range = f.ensure_type(self.settings['H_range'], (int, list))
+        mph = f.ensure_type(self.settings['mph'], float, orNoneType=True)
+        H_range = f.ensure_type(self.settings['H_range'], (int, list), orNoneType=True)
         dark_threshold = self.data['dark_threshold']
         idx_range = self.data['idx_range']
         if H_range:
