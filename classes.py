@@ -104,6 +104,7 @@ class MKID:
             ssf = 1
             settings['ssf'] = ssf
         sstype = f.ensure_type(settings['sstype'], str)
+        
         mph = f.ensure_type(settings['mph'], float, orNoneType=True)
         mpp = f.ensure_type(settings['mpp'], float, orNoneType=True)
         nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)

@@ -11,9 +11,12 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 
 
-def get_bin_files(dir_path, kid_nr, p_read):
-    txt = 'KID' + str(kid_nr) + '_' + str(p_read) + 'dBm__TDvis'
-    info_path = dir_path + '/' + txt + '0' + '*_info.dat'
+def get_bin_files(dir_path, kid_nr, p_read, type='vis'):
+    txt = 'KID' + str(kid_nr) + '_' + str(p_read) + 'dBm__TD' + str(type)
+    if type == 'vis':
+        info_path = dir_path + '/' + txt + '0' + '*_info.dat'
+    else:
+        info_path = dir_path + '/' + txt + '*_info.dat'
     bin_path = dir_path + '/' + txt + '*.bin'
     list_bin_files = glob.glob(bin_path)
     info_file = glob.glob(info_path)
