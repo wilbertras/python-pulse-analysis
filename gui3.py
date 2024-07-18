@@ -108,7 +108,7 @@ class GUI:
             
             fig, axes = plt.subplot_mosaic('aabc', figsize=(12, 3), constrained_layout=True, sharey=True)
             ax = axes['a']
-            ax.plot(t[:plot_idx], X[:plot_idx], lw=.5, label='Im(z)', zorder=0)
+            # ax.plot(t[:plot_idx], X[:plot_idx], lw=.5, label='Im(z)', zorder=0)
             ax.set_xlim([0, t[plot_idx-1]])
             ax.set_ylim([min, max])
             ax.set_xlabel('')
@@ -129,14 +129,14 @@ class GUI:
 
                 if tqp:
                     locs, props = find_peaks(Xsmooth, height=mph, prominence=mph/2) 
-                    heights = X[locs]
+                    heights = props['peak_heights']
                 else:
                     locs, props = find_peaks(X, height=mph, prominence=mph/2) 
-                    heights = props['peak_heights']
+                    # heights = props['peak_heights']
                 nr_peaks = len(heights)
                 peak_rate = nr_peaks / (nr_points / sf)
                 ax.axhline(mph, color='tab:red', lw=1, label='mph=%.3f' % mph, zorder=2)
-            ax.legend(loc='upper right')
+            # ax.legend(loc='upper right')
             ax = axes['b']
             if thres and pw:
                 ax.axhline(mph, color='tab:red', lw=1, zorder=2)
@@ -175,7 +175,7 @@ class GUI:
                 if nr_too_close:
                     print('%d peaks too close' % nr_too_close)
                     axes['a'].scatter(locs[~single_pulses] / sf, heights[~single_pulses], marker='v', c='None', edgecolors='tab:red', lw=1, label='too close', zorder=3)
-                axes['a'].legend(loc='upper right')
+                # axes['a'].legend(loc='upper right')
                 ax.hist(heights[single_pulses], 'auto', facecolor='tab:green', label='singles', orientation=u'horizontal')
                 pulses = np.array(pulses)
                 pulses = pulses.reshape((-1, pw+offset))

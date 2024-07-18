@@ -109,7 +109,7 @@ class MKID:
         mpp = f.ensure_type(settings['mpp'], float, orNoneType=True)
         nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)
         binsize = f.ensure_type(settings['binsize'], float)
-        H_range = f.ensure_type(settings['H_range'], (int, list, tuple), orNoneType=True)
+        H_range = f.ensure_type(settings['H_range'], (float, list, tuple), orNoneType=True)
         fit_T = f.ensure_type(settings['fit_T'], (int, np.ndarray))
         max_bw = f.ensure_type(settings['max_bw'], int)
         filter_std = f.ensure_type(settings['filter_std'], int)
@@ -464,7 +464,7 @@ class MKID:
 
     def plot_hist(self, ax, type, binsize):
         mph = f.ensure_type(self.settings['mph'], float, orNoneType=True)
-        H_range = f.ensure_type(self.settings['H_range'], (int, list), orNoneType=True)
+        H_range = f.ensure_type(self.settings['H_range'], (float, list, tuple), orNoneType=True)
         dark_threshold = self.data['dark_threshold']
         idx_range = self.data['idx_range']
         if H_range:
