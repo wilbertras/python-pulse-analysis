@@ -259,9 +259,13 @@ class MKID:
         H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
         H_0, _, _, _ = f.optimal_filter(noises, mean_pulse, sf, ssf, nxx)
         mean_H_opt = np.mean(H_opt)
+        binedges = np.histogram_bin_edges(H_opt, bins='auto')
+        binsize = binedges[1]-binedges[0]
         R, _, _, _, _ = f.resolving_power(H_range, binsize)
         R_opt, pdf_y, pdf_x, mu_opt, _ = f.resolving_power(H_opt, binsize)
         R_i = 1 / np.sqrt(1 / R_opt**2 - 1 / R_sn**2)
+        binedges = np.histogram_bin_edges(H_0, bins='auto')
+        binsize = binedges[1]-binedges[0]
         _, _, _, _, fwhm_0 = f.resolving_power(H_0, binsize)
         R_0 = mu_opt / fwhm_0
         
@@ -486,6 +490,7 @@ class MKID:
         if type=='smoothed':
             H_smoothed = self.data['H_smoothed']
             bin_edges = np.arange(mph, np.amax(H_smoothed)+new_binsize, new_binsize)
+            bin_edges = np.histogram_bin_edges(H_smoothed, bins='auto')
             ax.hist(H_smoothed[idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
             ax.hist(H_smoothed[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5) 
             if H_range:
@@ -501,6 +506,7 @@ class MKID:
         elif type=='unsmoothed':
             H = self.data['H']
             bin_edges = np.arange(0, np.amax(H)+new_binsize, new_binsize)
+            bin_edges = np.histogram_bin_edges(H, bins='auto')
             ax.hist(H[idx_range], bins=bin_edges, label='sel.', color='tab:blue', alpha=0.5)
             ax.hist(H[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
             ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
@@ -516,7 +522,9 @@ class MKID:
             bin_max = np.amax((np.amax(H), np.amax(Hopt)))
             bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
             n0 = len(H0) / len(H)
+            bin_edges = np.histogram_bin_edges(H0, bins='auto')
             ax.hist(H0, color='k', alpha=0.5, label='$\it{H}_{0}$')
+            bin_edges = np.histogram_bin_edges(Hopt, bins='auto')
             ax.hist(H[idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
             ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
             ax.plot(pdfx, pdfy, c='k', ls='--', lw=0.5, label='KDE')
@@ -527,6 +535,7 @@ class MKID:
                 if len(dark_H_smoothed):
                     H_smoothed = self.data['H_smoothed']
                     bin_edges = np.arange(mph, np.amax(dark_H_smoothed)+new_binsize, new_binsize)
+                    bin_edges = np.histogram_bin_edges(dark_H_smoothed, bins='auto')
                     ax.hist(dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
                     ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % mph)
                     ax.axvline(dark_threshold, c='r', lw=0.5, ls='-.', label='$5\/\it{\\sigma}_{dark}=%.2f$' % dark_threshold)
