@@ -35,8 +35,7 @@ def get_info(file_path):
     [Q, Qc, Qi, S21_min] = Qs
     fs = 1 / float(re.findall("\d+\.\d+", lines[4])[0])
     T = float(re.findall("\d+\.\d+", lines[7])[0])
-    info = {'f0' : f0, 'Q' : Q, 'Qc' : Qc, 'Qi' : Qi, 'S21_min' : S21_min, 'fs' : fs, 'T' : T}
-    return info
+    return f0, Q, Qc, Qi, S21_min, fs, T
 
 
 def ensure_type(input_value, preferred_types, orNoneType=False):
@@ -240,7 +239,56 @@ def supersample(signal, num, type='interp', axis=0):
         raise Exception('Please input correct supersample type: "interp" or "fourier"')
 
 
-def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
+def find_pks(signal, ph, pp, sw, window, sff):
+    sw *= sff
+
+    # Smooth timestream data for peak finding
+    if sw:    
+        smoothed_signal = fftconvolve(signal, window, mode='valid')
+        window_offset = int(np.argmax(window[::-1]))
+    else:
+        smoothed_signal = signal
+        window_offset = 0
+
+    # Find peaks in data
+    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=ph, prominence=pp)
+    locs = locs_smoothed + window_offset
+    return locs, props_smoothed
+
+
+def filter_single_pulses(signal, locs, pw, rise_offset):
+    pulses = []
+    nr_peaks = len(locs)
+    len_signal = len(signal)
+    too_close = 0
+    single_pulses = np.zeros(nr_peaks, dtype=bool)
+    for i, loc in enumerate(locs):
+        too_close = 0
+        if  i < nr_peaks - 1 and i > 0: 
+            if (loc + pw >= locs[i+1] or loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
+                too_close = 1
+        elif i == 0:
+            if nr_peaks > 1:
+                if (loc + pw >= locs[i+1] or loc + pw >= len_signal or loc - rise_offset < 0):
+                    too_close = 1
+            else:
+                if (loc + pw >= len_signal or loc - rise_offset < 0):
+                    too_close = 1
+        elif i == nr_peaks - 1: 
+            if (loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
+                too_close = 1 
+        if not too_close:                 
+            single_pulses[i] = 1
+            pulse = signal[loc-rise_offset:loc+pw]
+            pulses.append(pulse)
+        pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset))
+    if np.sum(single_pulses):
+        return pulses_aligned, single_pulses
+    else:
+        return np.empty((1, pw + rise_offset)), single_pulses
+
+
+def peak_model(signal, ph, pp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
@@ -252,20 +300,22 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
     # Smooth timestream data for peak finding
     if sw:    
         smoothed_signal = fftconvolve(signal, window, mode='valid')
+        window_offset = int(np.argmax(window[::-1]))
     else:
         smoothed_signal = signal
+        window_offset = 0
 
     # Find peaks in data
-    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=mph, prominence=mpp/2)
+    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=ph, prominence=pp)
     pks_smoothed = props_smoothed['peak_heights']
     nr_pulses = len(locs_smoothed)
     det_locs = copy(locs_smoothed)
     if nr_pulses == 0:
-        pulses_aligned = []
-        H = []
-        sel_locs = []
-        filtered_locs = []
-        pks_smoothed = []
+        pulses_aligned = np.array([[]])
+        H = np.array([])
+        sel_locs = np.array([])
+        filtered_locs = np.array([])
+        pks_smoothed = np.array([])
     else:
         # Assign buffer for pulse alignment. The buffer is applied on both sides of the pulsewindow: buffer + pw + buffer
         buffer_len = int(2*buffer + pw)
@@ -303,11 +353,11 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
             plot_count = 0
 
         for i in range(len(locs_smoothed)):
-            loc = locs_smoothed[i]
+            loc = locs_smoothed[i] + window_offset
             left = int(loc - rise_offset - buffer)
             right = int(loc + (pw - rise_offset) + buffer)
             pulse = signal[left:right]    # first take a cut with buffer on both sides based on loc from smoothed data
-            smoothed_pulse = smoothed_signal[left:right]
+            smoothed_pulse = smoothed_signal[left-window_offset:right-window_offset]
             smoothed_peak = pks_smoothed[i]
 
             if align == 'peak':
@@ -345,7 +395,7 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
                     idx_max = idx_max_right
                     full_max = props_right['peak_heights'][0]
                 else:
-                    locs_left, props_left = find_peaks(pulse[:smoothed_loc+1], height=min_height, prominence=0) # Find peaks to the right of smoothed peak with at minimal height the value at the smoothed peak
+                    locs_left, props_left = find_peaks(pulse[:smoothed_loc+1], height=min_height, prominence=0) # Find peaks to the left of smoothed peak with at minimal height the value at the smoothed peak
                     if len(locs_left) != 0:
                         idx_max_left = locs_left[-1]
                         idx_max = idx_max_left
@@ -382,7 +432,9 @@ def peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer
                     ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse', zorder=0)
                     if sw:
                         ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', label='smoothed pulse', zorder=1)
-                    ax.axhline(mph, lw=0.5, c='tab:red', label='min. peak height', zorder=2)
+                    for h in ph:
+                        if h:
+                            ax.axhline(h, lw=0.5, c='tab:red', label='min/max peak height', zorder=2)
                     ax.scatter(t[smoothed_loc], smoothed_pulse[smoothed_loc], c='None', edgecolor='tab:orange', marker='v', label='smoothed peak', zorder=3)
                     ax.scatter(t[idx_max], full_max, color='None', edgecolor='tab:green', marker='v', label='peak', zorder=3)
                     if align == 'edge':
@@ -456,7 +508,7 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
-def noise_model(signal, pw, sff, nr_req_segments, sw, window):
+def noise_model(signal, pw, sff, nr_req_segments, sw, window, dark_thres):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -475,9 +527,9 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window):
 
     # Compute std of the signal, twice, to set as a threshold for pulse detection in the noise segments
     std = np.std(smoothed_signal)
-    threshold = np.round(5 * std, decimals=2)
+    threshold = np.round(dark_thres * std, decimals=2)
     std = np.std(smoothed_signal[smoothed_signal < threshold])
-    threshold = np.round(5 * std, decimals=2)
+    threshold = np.round(dark_thres * std, decimals=2)
     
     # Compute the average noise PSD
     nr_good_segments = 0
@@ -507,9 +559,9 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window):
         raise Exception('No good noise segments found')
     sxx = sxx_segments / nr_good_segments  # compute the avarage PSD
     std = stds / nr_good_segments  # compute the avarage std
-    threshold = np.round(5 * std, decimals=2)
+    noise_std = np.round(std, decimals=2)
     noise_segments = np.array(noise_segments).reshape((-1, pw))
-    return freqs[1:len_onesided], sxx[1:len_onesided], threshold, noise_segments
+    return freqs[1:len_onesided], sxx[1:len_onesided], noise_std, noise_segments
 
 
 def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx):
@@ -553,6 +605,7 @@ def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx):
     R_sn = np.mean(1 / dE)
 
     chi_sq = np.sum((Df - np.outer(H, Mf))**2 / nxx, axis=-1)
+    chi_sq = np.sum((pulses - np.outer(H, norm_pulse_model)**2), axis=-1)
 
     return H, R_sn, mean_Dxx, chi_sq
 

@@ -1,8 +1,10 @@
 import functions as f
 import matplotlib.pyplot as plt
+from scipy.signal import find_peaks, medfilt
 import numpy as np
 import pickle
 import time
+from copy import copy
 
 try:
     plt.style.use('../../mpl-stylesheet/custom_mpl_style/matplotlibrc')
@@ -17,13 +19,13 @@ class MKID:
             self.load_mkid(file_path)
         elif file_path is None:
             [LT, wl, light_dir, dark_dir, kid_nr, pread, date, chuncksize] = args
-            self.data = {}
-            self.data['LT'] = int(LT)
-            self.data['wl'] = int(wl)
-            self.data['KID'] = int(kid_nr)
-            self.data['pread'] = int(pread)
-            self.data['date'] = str(date)
-            self.data['name'] = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
+            self.LT = int(LT)
+            self.wl = int(wl)
+            self.KID = int(kid_nr)
+            self.pread = int(pread)
+            self.data = str(date)
+            self.name = 'LT%d_%dnm_KID%d_P%d_%s' % (LT, wl, kid_nr, pread, date)
+
             self.chunckwise_peakmodel = False
             self.existing_peak_model = False
             self.chuncksize = int(chuncksize)
@@ -43,7 +45,7 @@ class MKID:
             if self.nr_dark_segments == 0:
                 raise ValueError('No dark files obtained')
             
-            self.light_files, self.light_info_file = f.get_bin_files(light_dir, kid_nr, pread)
+            self.light_files, self.light_info_files = f.get_bin_files(light_dir, kid_nr, pread)
             self.nr_light_loaded = len(self.light_files)
             if self.nr_light_loaded <= self.chuncksize:
                 self.amp, self.phase, removed_light = f.concat_vis(self.light_files, discard=self.discard_saturated)
@@ -62,257 +64,198 @@ class MKID:
             
             print('Chunckwise peakmodel is %s' % self.chunckwise_peakmodel)
 
-            if len(self.light_info_file) != 0:
-                info = f.get_info(self.light_info_file[0])
-            else:
-                info = {'f0' : 0 , 'Q' : 0, 'Qc' : 0, 'Qi' : 0, 'S21_min' : 0, 'fs' : 0, 'T' : 0}
+            if len(self.light_info_files) != 0:
+                self.f0, self.Q, self.Qc, self.Qi, self.S21_min, self.fs, self.T = f.get_info(self.light_info_files[0])
+            else:                
                 print('No info file obtained')
-            for x in info:
-                self.data[x] = info[x]
+                self.f0, self.Q, self.Qc, self.Qi, self.S21_min, self.fs, self.T = 0
         tstop = time.time()
         telapsed = tstop - tstart
         print('Elapsed time: %d s' % telapsed)
 
 
-    def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, plot_pulses=False, save=False, figpath=''):
-        print('----------------STARTED----------------')
-        tstart = time.time()
-        sf = f.ensure_type(settings['sf'], int)
-        sff = int(sf / 1e6)
-        settings['sff'] = f.ensure_type(sff, int)
-        response = f.ensure_type(settings['response'], str)
-        coord = f.ensure_type(settings['coord'], str)
-        pulse_length = f.ensure_type(settings['pw'], int)
-        rise_offset = f.ensure_type(settings['rise_offset'], int)
-        pw = int((pulse_length + rise_offset))
-        buffer = f.ensure_type(settings['buffer'], int)
-        windowtype = f.ensure_type(settings['window'], str)
-        sw = f.ensure_type(settings['sw'], int)
-        if sw and sw > 1:
-            window = f.get_window(windowtype, sw*sff)
-        else:
-            sw = 0
-            window = None
-        ssf = f.ensure_type(settings['ssf'], int)
-        if ssf and ssf > 1:
-            pass
-        else:
-            ssf = 1
-            settings['ssf'] = 1
-        align = f.ensure_type(settings['align'], str)
-        if align == 'peak':
-            ssf = 1
-            settings['ssf'] = ssf
-        sstype = f.ensure_type(settings['sstype'], str)
-        
-        mph = f.ensure_type(settings['mph'], float, orNoneType=True)
-        mpp = f.ensure_type(settings['mpp'], float, orNoneType=True)
-        nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)
-        binsize = f.ensure_type(settings['binsize'], float)
-        H_range = f.ensure_type(settings['H_range'], (float, list, tuple), orNoneType=True)
-        fit_T = f.ensure_type(settings['fit_T'], (int, np.ndarray))
-        max_bw = f.ensure_type(settings['max_bw'], int)
-        filter_std = f.ensure_type(settings['filter_std'], int)
-        self.settings = settings
+    def pks_vs_sigmas(self, settings, f, stds, binsize, kernel=None):
+        self.settings = self.import_settings(settings)
 
-        self.signal, self.dark_signal = f.coord_transformation(response, coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
-        first_sec = int(1 * sf)
-        self.data['signal'] = self.signal[0:first_sec]
-        self.data['dark_signal'] = self.dark_signal[0:first_sec]
+        self.signal, self.dark_signal = self.coord_transformation()
+        if kernel:
+            self.signal = medfilt(self.signal, kernel)
+            self.dark_signal = medfilt(self.dark_signal, kernel)
+        if self.sw:
+            smooth_binsize = binsize / 2
+        else:
+            smooth_binsize = binsize
+        binedges = np.arange(-10, 30, binsize)
+        smooth_binedges = np.arange(-10, 30, smooth_binsize)
         print('(1/3) Constructing noise_model')
-        fxx, nxx, _, noises = f.noise_model(self.dark_signal, pw, sff, nr_noise_segments, sw, window)
 
-        Nfxx, Nxx, dark_threshold, _ = f.noise_model(self.dark_signal, max_bw, sff, nr_noise_segments, sw, window)
-        self.data['dark_threshold'] = dark_threshold
-        if mph == None:
-            mph = dark_threshold
-            mpp = mph
-            self.settings['mph'] = mph
-            self.settings['mpp'] = mpp
+        _, nxx, _, noises = self.noise_model(self.pw)
+        noise_std = np.std(noises.reshape((1, -1)))
+        _, _, smooth_noise_std, _ = self.noise_model(self.max_bw)
+        mph = stds[0]*smooth_noise_std
+        mpp = mph / 2
+        locs, props_smoothed = f.find_pks(self.signal, mph, mpp, self.sw, self.window, self.sff)
+        # pulses, pulse_idx = f.filter_single_pulses(self.signal, locs, self.pw, self.rise_offset)
+        H_smoothed = props_smoothed['peak_heights']
+        P_smoothed = props_smoothed['prominences']
+        dark_locs, dark_props_smoothed = f.find_pks(self.dark_signal, mph, mpp, self.sw, self.window, self.sff)
+        dark_H_smoothed = dark_props_smoothed['peak_heights']
+        dark_P_smoothed = dark_props_smoothed['prominences']
 
-        if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True) or self.max_chuncks != max_chuncks: 
-            print('(2/3) Constructing peak_model, aligning on pulse %s' % align)
-            self.max_chuncks = max_chuncks
-            if self.max_chuncks:
-                if self.max_chuncks > 1:
-                    self.chunckwise_peakmodel = True
-                else:
-                    self.chunckwise_peakmodel = False
-            elif self.max_chuncks is None:
-                self.chunckwise_peakmodel = True
-            if self.chunckwise_peakmodel:
-                start = 0
-                stop = self.chuncksize
-                chunck = self.chuncksize
-                pulses = []
-                H = []
-                sel_locs = []
-                filtered_locs = []
-                H_smoothed = []
-                removed = 0
-                if self.max_chuncks:
-                    max_files = self.max_chuncks * chunck
-                else: 
-                    max_files = self.nr_light_loaded
-                while stop <= max_files:
-                    print('   (%d/%d) light files processed:' % (stop, max_files))
-                    light_files_chunck = self.light_files[start:stop]
-                    if start == 0:
-                        amp, phase = self.amp, self.phase
-                    else:
-                        amp, phase, removed_chunck = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
-                        removed += removed_chunck
-                    signal = f.coord_transformation(response, coord, phase, amp)
+        fig, ax = plt.subplot_mosaic('abcde', figsize=(10, 4), constrained_layout=True)
+        for i, nr_stds in enumerate(stds[::-1][:-1]):
+            new_nr = stds[::-1][i+1]
+            next_mph = nr_stds*smooth_noise_std
+            next_mpp = next_mph / 2
+            new_mph = new_nr*smooth_noise_std
+            new_mpp = new_mph / 2
+            new_idx = (H_smoothed >= new_mph) & (P_smoothed >= new_mpp) & (H_smoothed < next_mph) & (P_smoothed < next_mpp)
+            dark_new_idx = (dark_H_smoothed >= new_mph) & (dark_P_smoothed >= new_mpp) & (dark_H_smoothed < next_mph) & (dark_P_smoothed < next_mpp)
+            new_locs = locs[new_idx]
+            new_pulses, single_idx = f.filter_single_pulses(self.signal, new_locs, self.pulse_length, self.rise_offset)
+            dark_new_locs = dark_locs[dark_new_idx]
+            dark_new_pulses, dark_single_idx = f.filter_single_pulses(self.signal, dark_new_locs, self.pulse_length, self.rise_offset)
+            if i==0:
+                pulse_template = np.mean(new_pulses, axis=0)
+            H = H_smoothed[new_idx][single_idx]
+            dark_H = dark_H_smoothed[dark_new_idx][dark_single_idx]
+            H_opt, _, _, chi_sq = f.optimal_filter(new_pulses, pulse_template, self.sf, self.ssf, nxx)
+            ax['e'].hist(np.absolute(chi_sq), bins='auto', alpha=.5)
+            # dark_H_opt, _, _, _ = f.optimal_filter(dark_new_pulses, pulse_template, self.sf, self.ssf, nxx)
+            ax['a'].plot(np.mean(new_pulses, axis=0)/np.amax(pulse_template), zorder=i, alpha=0.5)
+            ax['d'].hist(H_opt/smooth_noise_std, bins=binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
+            ax['c'].hist(H/smooth_noise_std, bins=smooth_binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
+            ax['b'].hist(dark_H/smooth_noise_std, bins=smooth_binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
+        if self.sw:
+            ax['a'].plot(self.window[::-1]/np.amax(self.window))
+        H_opt0, _, _, chi_sq = f.optimal_filter(noises, pulse_template, self.sf, self.ssf, nxx)
+        ax['e'].hist(np.absolute(chi_sq), bins='auto', alpha=.5)
+        ax['a'].plot(np.mean(noises, axis=0)/np.amax(pulse_template), zorder=i+1, alpha=0.5)
+        # ax['b'].hist(H_opt0/smooth_noise_std, bins=smooth_binedges, label='Noises', alpha=0.5, zorder=0)
+        # ax['c'].hist(H_opt0/smooth_noise_std, bins=smooth_binedges, label='Noises', alpha=0.5, zorder=0)
+        ax['d'].hist(H_opt0/smooth_noise_std, bins=binedges, label='Noises', alpha=0.5, zorder=0)
+        ax['a'].set_title('pulse model')
+        ax['a'].set_xlabel('')
+        ax['b'].set_title('dark smooth heights')
+        ax['b'].set_xlabel('$H_{dark}/\sigma$')
+        ax['c'].set_title('light smooth heights')
+        ax['c'].set_xlabel('$H/\sigma$')
+        ax['d'].set_title('light optimal heights')
+        ax['d'].set_xlabel('$H_{opt}/\sigma$')
+        ax['d'].legend()
 
-                    if plot_pulses and start==0:
-                        pass
-                    else:
-                        plot_pulses = False
 
-                    pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = f.peak_model(signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)
-                    
-                    if len(sel_locs_chunck) != 0:
-                        sel_locs_chunck += int(start * sf)
-                        pulses.append(pulses_chunck)
-                        H.append(H_chunck)
-                        sel_locs.append(sel_locs_chunck)
-                        filtered_locs.append(filtered_locs_chunck)
-                        H_smoothed.append(H_smoothed_chunck)
-                    if len(filtered_locs_chunck) != 0:
-                        filtered_locs_chunck += int(start * sf)              
+    def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, iterate=False, plot_pulses=False, save=False, figpath=''):
+        print('----------------STARTED----------------')
+        
+        tstart = time.time()
+        self.settings = self.import_settings(settings)
+        self.max_chuncks=max_chuncks
+        self.red_peak_model=redo_peak_model
+        self.iterate=iterate
+        self.plot_pulses = plot_pulses
+        self.save = save
+        self.figpath = figpath
 
-                    start = stop
-                    stop += chunck
-                    if start >= max_files:
-                        stop = max_files + 1
-                    elif stop > max_files:
-                        stop = max_files
-                    
-                self.nr_segments = max_files - removed
-                pulses = np.concatenate(pulses)
-                H = np.concatenate(H)
-                sel_locs = np.concatenate(sel_locs)
-                filtered_locs = np.concatenate(filtered_locs)
-                H_smoothed = np.concatenate(H_smoothed)
-            else:  
-                print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))  
-                pulses, H, sel_locs, filtered_locs, H_smoothed = f.peak_model(self.signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=plot_pulses)  
+        self.signal, self.dark_signal = self.coord_transformation()
 
-            # Filter the pulses that satisfy H_range with filter_std number of standard deviations
-            if H_range:
-                pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
-            else:
-                idx_range = np.ones(len(H_smoothed), dtype=bool)
 
-            # Save the data
-            self.data['pulses'] = pulses
-            self.data['sel_locs'] = sel_locs
-            self.data['filtered_locs'] = filtered_locs
-            self.data['H'] = H
-            self.data['H_smoothed'] = H_smoothed
-            self.data['idx_range'] = idx_range
-            self.existing_peak_model = True
+        print('(1/3) Constructing noise_model')
+
+        self.fxx, self.nxx, _, noises = self.noise_model(self.pw)
+        self.Nfxx, self.Nxx, self.noise_std, _ = self.noise_model(self.max_bw)
+        self.mph, self.mpp = self.get_mph(self.height, self.prominence)
+
+        if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
+            print('(2/3) Constructing peak_model, aligning on pulse %s' % self.align)
+            self.pulses, self.H, self.sel_locs, self.filtered_locs, self.H_smoothed = self.peak_model(self.mph, self.mpp)
+            self.filter_pulses()
         else:
-            # Load the data
             print('(2/3) Reloading existing peak_model')
             print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))
-            pulses = self.data['pulses']
-            sel_locs = self.data['sel_locs']
-            filtered_locs = self.data['filtered_locs']
-            H = self.data['H']
-            H_smoothed = self.data['H_smoothed']
+            self.filter_pulses()
+        self.existing_peak_model = True
 
-            # Filter the pulses that satisfy H_range with filter_std number of standard deviations
-            pulses, H, sel_locs, filtered_locs, H_smoothed, idx_range = f.filter_pulses(pulses, H, sel_locs, filtered_locs, H_smoothed, H_range, filter_std)
-            self.data['pulses'] = pulses
-            self.data['sel_locs'] = sel_locs
-            self.data['filtered_locs'] = filtered_locs
-            self.data['H'] = H
-            self.data['H_smoothed'] = H_smoothed
-            self.data['idx_range'] = idx_range
 
         # Get pulses in dark data
         print('   (%d/%d) dark files processed:' % (self.nr_dark_segments, self.nr_dark_segments))  
-        _, dark_H, sel_dark_locs, filtered_dark_locs, dark_H_smoothed = f.peak_model(self.dark_signal, mph, mpp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset)
-        dark_locs = np.hstack((sel_dark_locs, filtered_dark_locs))
-        self.data['dark_locs'] = dark_locs
+        _, self.dark_H, self.sel_dark_locs, self.filtered_dark_locs, self.dark_H_smoothed = self.find_peaks(self.dark_signal, self.mph, self.mpp)
+        self.dark_locs = np.hstack((self.sel_dark_locs, self.filtered_dark_locs))
 
         ## Mean pulse
-        pulses_range = pulses[idx_range, :]
-        H_range = H[idx_range]
-        mean_pulse = np.mean(pulses_range, axis=0)
-        sxx = f.psd(mean_pulse, sf*ssf)[1:round(pw*sff/2)+1]
+        pulses_range = self.pulses[self.idx_range, :]
+        H_range = self.H[self.idx_range]
+        self.mean_pulse = np.mean(pulses_range, axis=0)
+        self.sxx = f.psd(self.mean_pulse, self.sf*self.ssf)[1:round(self.pw*self.sff/2)+1]
+
+
+        ###########################################
+        if self.iterate:
+            self.H0 = copy(self.H)
+            self.idx_range0 = copy(self.idx_range)
+            self.H_opt0, _, _, _ = self.optimal_filter(pulses_range)
+
+            template = self.mean_pulse
+            self.window = template[::-1] / np.sum(template)
+            self.sw = self.pulse_length
+            self.windowtype = 'iterative'
+            self.window_offset = int(np.argmax(self.window[::-1]))
+
+            self.fxx, self.nxx, _, noises = self.noise_model(self.pw)
+            self.Nfxx, self.Nxx, self.noise_std, _ = self.noise_model(self.max_bw)
+            self.mph, self.mpp = self.get_mph(self.height, self.prominence)
+
+            if self.existing_peak_model==False or (self.existing_peak_model==True and redo_peak_model==True): 
+                print('(2/3) Constructing peak_model, aligning on pulse %s' % self.align)
+                self.pulses, self.H, self.sel_locs, self.filtered_locs, self.H_smoothed = self.peak_model(self.mph, self.mpp)
+                self.filter_pulses()
+            else:
+                print('(2/3) Reloading existing peak_model')
+                print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))
+                self.filter_pulses()
+            self.existing_peak_model = True
+
+            # Get pulses in dark data
+            print('   (%d/%d) dark files processed:' % (self.nr_dark_segments, self.nr_dark_segments))  
+            _, self.dark_H, self.sel_dark_locs, self.filtered_dark_locs, self.dark_H_smoothed = self.find_peaks(self.dark_signal, self.mph, self.mpp)
+            self.dark_locs = np.hstack((self.sel_dark_locs, self.filtered_dark_locs))
+
+            ## Mean pulse
+            pulses_range = self.pulses[self.idx_range, :]
+            H_range = self.H[self.idx_range]
+            self.mean_pulse = np.mean(pulses_range, axis=0)
+            self.sxx = f.psd(self.mean_pulse, self.sf*self.ssf)[1:round(self.pw*self.sff/2)+1]
+    
         
         ## Determine some pulse statistics
-        nr_sel_pulses = len(sel_locs)
+        nr_sel_pulses = len(self.sel_locs)
         if nr_sel_pulses == 0:
             raise Exception("   No pulses selected")
-        nr_rej_pulses = len(filtered_locs)
+        nr_rej_pulses = len(self.filtered_locs)
         nr_det_pulses = nr_sel_pulses + nr_rej_pulses
-        rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
-        photon_rate = nr_det_pulses / self.nr_segments
-        photon_rate_range = len(H_range) / self.nr_segments
-        dark_photon_rate = len(dark_locs) / self.nr_dark_segments
+        self.rej_perc = 100 * (1 - nr_sel_pulses / nr_det_pulses)
+        self.photon_rate = nr_det_pulses / self.nr_segments
+        self.photon_rate_range = len(H_range) / self.nr_segments
+        self.dark_photon_rate = len(self.dark_locs) / self.nr_dark_segments
+
 
         ## Optimal filtering and resolving powers
         print('(3/3) Applying optimal_filter')
-        H_opt, R_sn, mean_dxx, chi_sq = f.optimal_filter(pulses_range, mean_pulse, sf, ssf, nxx)
-        H_0, _, _, _ = f.optimal_filter(noises, mean_pulse, sf, ssf, nxx)
-        mean_H_opt = np.mean(H_opt)
-        binedges = np.histogram_bin_edges(H_opt, bins='auto')
-        binsize = binedges[1]-binedges[0]
-        R, _, _, _, _ = f.resolving_power(H_range, binsize)
-        R_opt, pdf_y, pdf_x, mu_opt, _ = f.resolving_power(H_opt, binsize)
-        R_i = 1 / np.sqrt(1 / R_opt**2 - 1 / R_sn**2)
-        binedges = np.histogram_bin_edges(H_0, bins='auto')
-        binsize = binedges[1]-binedges[0]
-        _, _, _, _, fwhm_0 = f.resolving_power(H_0, binsize)
-        R_0 = mu_opt / fwhm_0
+        self.H_opt, self.R_sn, self.mean_dxx, self.chi_sq = self.optimal_filter(pulses_range)
+        self.H_0, _, _, _ = self.optimal_filter(noises)
+        self.mean_H_opt = np.mean(self.H_opt)
+        binedges = np.histogram_bin_edges(self.H_opt, bins='auto')
+        pulse_binsize = binedges[1] - binedges[0]
+        self.R, _, _, _, _ = f.resolving_power(H_range, pulse_binsize)
+        self.R_opt, self.pdf_y, self.pdf_x, mu_opt, _ = f.resolving_power(self.H_opt[self.idx_range], pulse_binsize)
+        self.R_i = 1 / np.sqrt(1 / self.R_opt**2 - 1 / self.R_sn**2)
+        binedges = np.histogram_bin_edges(self.H_0, bins='auto')
+        noise_binsize = binedges[1]-binedges[0]
+        _, _, _, _, fwhm_0 = f.resolving_power(self.H_0, noise_binsize)
+        self.R_0 = mu_opt / fwhm_0
         
         ## Fit lifetime
-        tau_qp, dtau_qp, popt = f.fit_decaytime(mean_pulse, pw, [T+rise_offset for T in fit_T])
-        if isinstance(fit_T, (int, float)):
-            plot_x = np.linspace(fit_T, pw, (pw - fit_T) * ssf * sff)
-        elif isinstance(fit_T, (tuple, list, np.ndarray)):
-            plot_x = np.linspace(fit_T[0], fit_T[1], (fit_T[1] - fit_T[0]) * ssf * sff)
-        fit_x = np.arange(len(plot_x))
-        fit_y = f.exp_decay(fit_x, *popt)
-
-        ## Add data and settings to MKID object
-        self.data['window'] = window
-        self.data['mean_pulse'] = mean_pulse
-        self.data['R'] = R
-        self.data['Ropt'] = R_opt
-        self.data['Ri'] = R_i
-        self.data['Rsn'] = R_sn
-        self.data['R0'] = R_0
-        self.data['chi_sq'] = chi_sq
-        self.data['H0'] = H_0
-        self.data['dark_H'] = dark_H
-        self.data['dark_H_smoothed'] = dark_H_smoothed
-        self.data['Hopt'] = H_opt
-        self.data['<Hopt>'] = mean_H_opt
-        self.data['Nph'] = photon_rate
-        self.data['Nph_range'] = photon_rate_range
-        self.data['Nph_dark'] = dark_photon_rate
-        self.data['rej.'] = rej_perc
-        self.data['pdfx'] = pdf_x
-        self.data['pdfy'] = pdf_y
-        self.data['fxx'] = fxx
-        self.data['sxx'] = sxx
-        self.data['nxx'] = nxx
-        self.data['mean_dxx'] = mean_dxx
-        self.data['Nfxx'] = Nfxx
-        self.data['Nxx'] = Nxx
-        self.data['tqp'] = tau_qp
-        self.data['fitx'] = plot_x
-        self.data['fity'] = fit_y
-        self.data['sel_locs'] = sel_locs
-        self.data['filtered_locs'] = filtered_locs
-        self.data['dark_locs'] = dark_locs
-        self.data['nr_segments'] = self.nr_segments
-        self.data['nr_dark_segments'] = self.nr_dark_segments
-        self.data['settings'] = settings
+        self.tau_qp, self.fit_x, self.fit_y = self.fit_lifetime()
 
         ## Plot overview
         self.plot_overview()
@@ -326,65 +269,215 @@ class MKID:
         telapsed = tstop - tstart
         print('----------------FINISHED (IN %d s)----------------' % telapsed)
 
-    def plot_overview(self):
-        sw = f.ensure_type(self.settings['sw'], int)
-        tlim = f.ensure_type(self.settings['tlim'], (int, np.ndarray))
-        binsize = f.ensure_type(self.settings['binsize'], float)
-        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 10))
-        fig.suptitle('Overview: %s' % (self.data['name']))
-        self.plot_timestream(axes['A'], 'light', tlim)
-        self.plot_timestream(axes['B'], 'dark', tlim)
-        if sw:
-            self.plot_hist(axes['C'], 'dark smoothed', binsize)
-            self.plot_hist(axes['D'], 'smoothed', binsize * np.amax(self.data['H_smoothed'])/np.amax(self.data['H']))
-        self.plot_hist(axes['E'], 'unsmoothed', binsize)
-        self.plot_hist(axes['F'], 'optimal filter', binsize)
+
+    def import_settings(self, settings):
+        self.sf = f.ensure_type(settings['sf'], int)
+        self.sff = int(self.sf / 1e6)
+        settings['sff'] = f.ensure_type(self.sff, int)
+        self.response = f.ensure_type(settings['response'], str)
+        self.coord = f.ensure_type(settings['coord'], str)
+        self.pulse_length = f.ensure_type(settings['pw'], int)
+        self.rise_offset = f.ensure_type(settings['rise_offset'], int)
+        self.pw = int((self.pulse_length + self.rise_offset))
+        self.buffer = f.ensure_type(settings['buffer'], int)
+        self.windowtype = f.ensure_type(settings['window'], str)
+        self.sw = f.ensure_type(settings['sw'], int)
+        if self.sw and self.sw > 1:
+            self.window = f.get_window(self.windowtype, self.sw*self.sff)
+            self.window_offset = int(np.argmax(self.window[::-1]))
+        else:
+            self.sw = 0
+            self.window = None
+            self.window_offset = 0
+        self.ssf = f.ensure_type(settings['ssf'], int)
+        if self.ssf and self.ssf > 1:
+            pass
+        else:
+            self.ssf = 1
+            settings['ssf'] = 1
+        self.align = f.ensure_type(settings['align'], str)
+        if self.align == 'peak':
+            self.ssf = 1
+            settings['ssf'] = self.ssf
+        self.sstype = f.ensure_type(settings['sstype'], str)
         
-        self.plot_psds(axes['J'])
+        self.height = f.ensure_type(settings['mph'], (int, list, tuple, np.ndarray), orNoneType=True)
+        self.prominence = f.ensure_type(settings['mpp'], (int, list, tuple, np.ndarray), orNoneType=True)
+
+        self.nr_noise_segments = f.ensure_type(settings['nr_noise_segments'], int)
+        self.binsize = f.ensure_type(settings['binsize'], float)
+        self.H_range = f.ensure_type(settings['H_range'], (float, list, tuple), orNoneType=True)
+        self.fit_T = f.ensure_type(settings['fit_T'], (int, np.ndarray))
+        self.max_bw = f.ensure_type(settings['max_bw'], int)
+        self.tlim = f.ensure_type(settings['tlim'], (int, np.ndarray))
+        self.filter_std = f.ensure_type(settings['filter_std'], int)
+        self.noise_thres = f.ensure_type(settings['noise_thres'], (float, int))
+        return settings
+
+
+    def get_mph(self, min_height, min_prominence):
+        if min_height == None:
+            mph = [5 * self.noise_std, None]
+        elif isinstance(self.height, (int, float)):
+            mph = [min_height * self.noise_std, None]
+        else:
+            mph = [ph * self.noise_std for ph in min_height]
+        if min_prominence:
+            mpp = min_prominence * self.noise_std
+        else:
+            mpp = mph[0] / 2
+        return mph, mpp
+
+
+    def coord_transformation(self):
+            return f.coord_transformation(self.response, self.coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
+    
+
+    def peak_model(self, mph, mpp):
+        if self.max_chuncks:
+            if self.max_chuncks > 1:
+                self.chunckwise_peakmodel = True
+            else:
+                self.chunckwise_peakmodel = False
+        elif self.max_chuncks is None:
+            self.chunckwise_peakmodel = True
+        if self.chunckwise_peakmodel:
+            start = 0
+            stop = self.chuncksize
+            chunck = self.chuncksize
+            pulses = []
+            H = []
+            sel_locs = []
+            filtered_locs = []
+            H_smoothed = []
+            removed = 0
+            if self.max_chuncks:
+                max_files = self.max_chuncks * chunck
+            else: 
+                max_files = self.nr_light_loaded
+            while stop <= max_files:
+                print('   (%d/%d) light files processed:' % (stop, max_files))
+                light_files_chunck = self.light_files[start:stop]
+                if start == 0:
+                    amp, phase = self.amp, self.phase
+                else:
+                    amp, phase, removed_chunck = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
+                    removed += removed_chunck
+                signal = f.coord_transformation(self.response, self.coord, phase, amp)
+
+                if self.plot_pulses and start==0:
+                    pass
+                else:
+                    self.plot_pulses = False
+
+                pulses_chunck, H_chunck, sel_locs_chunck, filtered_locs_chunck, H_smoothed_chunck = self.find_peaks(signal, mph, mpp)
+                
+                if len(sel_locs_chunck) != 0:
+                    sel_locs_chunck += int(start * self.sf)
+                    pulses.append(pulses_chunck)
+                    H.append(H_chunck)
+                    sel_locs.append(sel_locs_chunck)
+                    filtered_locs.append(filtered_locs_chunck)
+                    H_smoothed.append(H_smoothed_chunck)
+                if len(filtered_locs_chunck) != 0:
+                    filtered_locs_chunck += int(start * self.sf)              
+
+                start = stop
+                stop += chunck
+                if start >= max_files:
+                    stop = max_files + 1
+                elif stop > max_files:
+                    stop = max_files
+                
+            self.nr_segments = max_files - removed
+            pulses = np.concatenate(pulses)
+            H = np.concatenate(H)
+            sel_locs = np.concatenate(sel_locs)
+            filtered_locs = np.concatenate(filtered_locs)
+            H_smoothed = np.concatenate(H_smoothed)
+        else:  
+            print('   (%d/%d) light files processed:' % (self.nr_segments, self.nr_segments))  
+            pulses, H, sel_locs, filtered_locs, H_smoothed = self.find_peaks(self.signal, mph, mpp)
+        return pulses, H, sel_locs, filtered_locs, H_smoothed
+
+
+    def find_peaks(self, signal, mph, mpp):
+        return f.peak_model(signal, mph, mpp, self.pw, self.sw, self.align, self.window, self.sff, self.ssf, self.sstype, self.buffer, self.rise_offset, plot_pulse=self.plot_pulses)
+
+
+    def noise_model(self, bw):
+        return f.noise_model(self.dark_signal, bw, self.sff, self.nr_noise_segments, self.sw, self.window, self.noise_thres)
+    
+
+    def filter_pulses(self):
+        if len(self.H) > 0:
+            self.pulses, self.H, self.sel_locs, self.filtered_locs, self.H_smoothed, self.idx_range = f.filter_pulses(self.pulses, self.H, self.sel_locs, self.filtered_locs, self.H_smoothed, self.H_range, self.filter_std)
+
+
+    def fit_lifetime(self):
+        tau_qp, dtau_qp, popt = f.fit_decaytime(self.mean_pulse, self.pw, [T+self.rise_offset for T in self.fit_T])
+        if isinstance(self.fit_T, (int, float)):
+            plot_x = np.linspace(self.fit_T, self.pw, (self.pw - self.fit_T) * self.ssf * self.sff)
+        elif isinstance(self.fit_T, (tuple, list, np.ndarray)):
+            plot_x = np.linspace(self.fit_T[0], self.fit_T[1], (self.fit_T[1] - self.fit_T[0]) * self.ssf * self.sff)
+        fit_x = np.arange(len(plot_x))
+        plot_y = f.exp_decay(fit_x, *popt)
+        return tau_qp, plot_x, plot_y
+
+
+    def optimal_filter(self, pulses):
+        return f.optimal_filter(pulses, self.mean_pulse, self.sf, self.ssf, self.nxx)
+    
+
+    def plot_overview(self):
+        fig, axes = plt.subplot_mosaic("AABB;CDEF;GHIJ;KKKK", layout='constrained', figsize=(18, 10))
+        fig.suptitle('Overview: %s' % (self.name))
+        self.plot_timestream(axes['A'], 'light')
+        self.plot_timestream(axes['B'], 'dark')
+
+        if self.sw:
+            self.plot_hist(axes['C'], 'dark smoothed')
+            self.plot_hist(axes['D'], 'smoothed')
+        self.plot_hist(axes['E'], 'unsmoothed')
+        self.plot_hist(axes['F'], 'optimal filter')
+        
         self.plot_stacked_pulses(axes['G'])
         self.plot_mean_pulse(axes['H'], type='lin')
         self.plot_mean_pulse(axes['I'], type='log')
+        self.plot_psds(axes['J'])
+
         self.plot_table(axes['K'])
 
 
-    def plot_timestream(self, ax, type, tlim=(0, 1)):
-        sf = f.ensure_type(self.settings['sf'], int)
-        mph = f.ensure_type(self.settings['mph'], float, orNoneType=True)
-        sw = f.ensure_type(self.settings['sw'], int)
-        H_smoothed = self.data['H_smoothed']
-        window = self.data['window']
-
+    def plot_timestream(self, ax, type):
         if type == 'light':
-            signal = self.data['signal']
-            locs = self.data['sel_locs']
-            filtered_locs = self.data['filtered_locs']
+            signal = self.signal
+            locs = self.sel_locs
+            filtered_locs = self.filtered_locs
             ax.set_title('Light timestream')
         elif type == 'dark':   
-            signal = self.data['dark_signal'] 
-            locs = self.data['dark_locs']
+            signal = self.dark_signal
+            locs = self.dark_locs
             ax.set_title('Dark timestream')
-        if int(tlim[-1]*sf) > len(signal):
-            tlim = (0, 1)
-        plot_locs_idx = (locs >= tlim[0]*sf) & (locs < tlim[1]*sf)
+        plot_locs_idx = (locs >= self.tlim[0]*self.sf) & (locs < self.tlim[1]*self.sf)
         plot_locs = locs[plot_locs_idx]
 
-        t_idx = np.arange(int(tlim[0]*sf), int(tlim[1]*sf), 1)
+        t_idx = np.arange(int(self.tlim[0]*self.sf), int(self.tlim[1]*self.sf), 1)
         ylim = [-0.5, np.ceil(np.amax(signal[t_idx]))]
-        t = t_idx / sf
+        t = t_idx / self.sf
         
         ax.plot(t, signal[t_idx], linewidth=0.5, label='timestream', zorder=1)  
-        if sw:  
-            len_window = len(window)
-            smoothed_signal = np.convolve(signal, window, mode='valid')
+        if self.sw:  
+            len_window = len(self.window)
+            smoothed_signal = np.convolve(signal, self.window, mode='valid')
             ax.plot(t[:-len_window+1], smoothed_signal[t_idx[:-len_window+1]], lw=0.5, label='smoothed', zorder=2)
         else:
-            smoothed_signal = signal
-        
+            smoothed_signal = signal 
         if type == 'light':
             if len(plot_locs_idx):
-                plot_sel_H = H_smoothed[plot_locs_idx]
+                plot_sel_H = self.H_smoothed[plot_locs_idx]
                 ax.scatter(t[plot_locs], plot_sel_H, marker='v', c='None', edgecolors='tab:green', lw=0.5, label='sel. pulses', zorder=4)
-            plot_filtered_idx = (filtered_locs >= tlim[0]*sf) & (filtered_locs < tlim[1]*sf)
+            plot_filtered_idx = (filtered_locs >= self.tlim[0]*self.sf) & (filtered_locs < self.tlim[1]*self.sf)
             if len(plot_filtered_idx):
                 plot_filtered_locs = filtered_locs[plot_filtered_idx]
                 plot_filtered_H = smoothed_signal[plot_filtered_locs]
@@ -393,9 +486,11 @@ class MKID:
             if len(plot_locs):
                 plot_dark_H = smoothed_signal[plot_locs]
                 ax.scatter(t[plot_locs], plot_dark_H, marker='v', c='None', edgecolors='tab:red', lw=0.5, zorder=4)
-        ax.axhline(mph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (mph), zorder=3)
+        for ph in self.mph:
+            if ph:
+                ax.axhline(ph, color='tab:red', lw=0.5, label='$\it{mph}=%.2f$' % (ph), zorder=3)
         ax.set_ylim(ylim)
-        ax.set_xlim(tlim)
+        ax.set_xlim(self.tlim)
         ax.set_xlabel('$\it{t}$ $[s]$')
         ax.set_ylabel('$response$')
         ax.legend(bbox_to_anchor=(0., 0, 1., .102), loc='lower left',
@@ -403,13 +498,9 @@ class MKID:
 
 
     def plot_stacked_pulses(self, ax):
-        pw = f.ensure_type(self.settings['pw'], int)
-        rise_offset = f.ensure_type(self.settings['rise_offset'], int)
-        pulses = self.data['pulses']
-        idx_range = self.data['idx_range']
-        pulses = pulses[idx_range]
+        pulses = self.pulses[self.idx_range]
         nr_pulses, len_pulses = pulses.shape
-        t = np.linspace(-rise_offset, pw-1, len_pulses)
+        t = np.linspace(0, self.pw-1, len_pulses) - self.rise_offset
         nr2plot = 100
         if nr2plot > nr_pulses:
             every = 1
@@ -417,23 +508,18 @@ class MKID:
             every = int(np.round(nr_pulses / nr2plot))           
         pulses2plot = pulses[::every, :].T
         ax.plot(t, pulses2plot, lw=0.25)
-        ax.set_xlim([-rise_offset, pw])
+        ax.set_xlim([-self.rise_offset, self.pw- self.rise_offset])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
         ax.set_ylabel('$response$')
         ax.set_title('%d overlayed pulses' % pulses2plot.shape[-1])
     
 
     def plot_psds(self, ax):
-        sf = f.ensure_type(self.settings['sf'], int)
-        sxx = self.data['sxx']
-        fxx = self.data['fxx']
-        nxx = self.data['nxx']
-        mean_dxx = self.data['mean_dxx']
-        ax.semilogx(fxx, 10*np.log10(sxx), label='$\it M(f)$')
-        ax.semilogx(fxx, 10*np.log10(nxx), label='$\it N(f)$')
-        ax.semilogx(fxx, 10*np.log10(mean_dxx), label='$\it D(f)$')
-        ax.set_ylim([10*np.log10(np.amin(nxx)), 10*np.log10(np.amax(sxx))])
-        ax.set_xlim([fxx[1], .5*sf])
+        ax.semilogx(self.fxx, 10*np.log10(self.sxx), label='$\it M(f)$')
+        ax.semilogx(self.fxx, 10*np.log10(self.nxx), label='$\it N(f)$')
+        ax.semilogx(self.fxx, 10*np.log10(self.mean_dxx), label='$\it D(f)$')
+        ax.set_ylim([10*np.log10(np.amin(self.nxx)), 10*np.log10(np.amax(self.sxx))])
+        ax.set_xlim([self.fxx[1], .5*self.sf])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)
         ax.xaxis.get_major_locator().set_params(numticks=99)
@@ -445,112 +531,76 @@ class MKID:
     
 
     def plot_mean_pulse(self, ax, type):
-        pw = f.ensure_type(self.settings['pw'], int)
-        rise_offset = f.ensure_type(self.settings['rise_offset'], int)
-        mean_pulse = self.data['mean_pulse']
-        fitx = self.data['fitx']
-        fity = self.data['fity']
-        len_mean_pulse = len(mean_pulse)
-        t = np.linspace(-rise_offset, pw-1, len_mean_pulse)
+        len_mean_pulse = len(self.mean_pulse)
+        t = np.linspace(-self.rise_offset, self.pulse_length-1, len_mean_pulse)
         if type == 'lin': 
-            ax.plot(t, mean_pulse, label='mean pulse', zorder=1)
-            ax.plot(fitx, fity, ls='--', label='fit', zorder=2)
+            ax.plot(t, self.mean_pulse, label='mean pulse', zorder=1)
+            ax.plot(self.fit_x, self.fit_y, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse')
         elif type == 'log':
-            ax.semilogy(t, mean_pulse, label='mean pulse', zorder=1)
-            ax.semilogy(fitx, fity, ls='--', label='fit', zorder=2)
+            ax.semilogy(t, self.mean_pulse, label='mean pulse', zorder=1)
+            ax.semilogy(self.fit_x, self.fit_y, ls='--', label='fit', zorder=2)
             ax.set_title('Average pulse semilog')
-        ax.set_xlim([-rise_offset, pw])
+            ax.set_ylim([1e-3, np.ceil(np.amax(self.mean_pulse))])
+        ax.set_xlim([-self.rise_offset, self.pulse_length])
         ax.set_xlabel('$\it{t}$ $[\mu s]$')
         ax.set_ylabel('$response$')
         ax.legend()
 
 
-    def plot_hist(self, ax, type, binsize):
-        mph = f.ensure_type(self.settings['mph'], float, orNoneType=True)
-        H_range = f.ensure_type(self.settings['H_range'], (float, list, tuple), orNoneType=True)
-        dark_threshold = self.data['dark_threshold']
-        idx_range = self.data['idx_range']
-        if H_range:
-            if isinstance(H_range, (int, float)):
-                lim = H_range 
-            elif isinstance(H_range, (tuple, list, np.ndarray)):
-                if H_range[0] == mph:
-                    lim = H_range[1]
-                else:
-                    lim = H_range[0]
-        else:
-            lim = mph
-        nr_bins = int(np.round((lim - mph) / binsize))
-        if nr_bins == 0:
-            new_binsize = binsize
-        else:
-            new_binsize = (lim-mph) / nr_bins
-            self.settings['binsize'] = new_binsize
+    def plot_hist(self, ax, type):
+        bin_max = np.amax((self.H, self.H_opt))
         if type=='smoothed':
-            H_smoothed = self.data['H_smoothed']
-            bin_edges = np.arange(mph, np.amax(H_smoothed)+new_binsize, new_binsize)
-            bin_edges = np.histogram_bin_edges(H_smoothed, bins='auto')
-            ax.hist(H_smoothed[idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
-            ax.hist(H_smoothed[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5) 
-            if H_range:
-                if isinstance(H_range, (int, float)):
-                    ax.axvline(H_range, c='r', lw=0.5, ls='--', label='$limit$')
-                elif isinstance(H_range, (tuple, list, np.ndarray)):
-                    ax.axvline(H_range[0], c='r', lw=0.5, ls='--', label='$limit$')
-                    ax.axvline(H_range[1], c='r', lw=0.5, ls='--')
-            ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
-            bin_max = np.amax(H_smoothed)
-            ax.set_xlim([0, bin_max])
+            bin_edges = np.histogram_bin_edges(self.H_smoothed, bins='auto')
+            ax.hist(self.H_smoothed[self.idx_range], bins=bin_edges, label='sel.', color='tab:orange', alpha=0.5)
+            ax.hist(self.H_smoothed[~self.idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5) 
+            if self.H_range:
+                if isinstance(self.H_range, (int, float)):
+                    ax.axvline(self.H_range, c='r', lw=0.5, ls='--', label='$limit$')
+                elif isinstance(self.H_range, (tuple, list, np.ndarray)):
+                    ax.axvline(self.H_range[0], c='r', lw=0.5, ls='--', label='$limit$')
+                    ax.axvline(self.H_range[1], c='r', lw=0.5, ls='--')
+            for ph in self.mph:
+                if ph:
+                    ax.axvline(ph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (ph))
             ax.set_title('Smoothed heights')    
         elif type=='unsmoothed':
-            H = self.data['H']
-            bin_edges = np.arange(0, np.amax(H)+new_binsize, new_binsize)
-            bin_edges = np.histogram_bin_edges(H, bins='auto')
-            ax.hist(H[idx_range], bins=bin_edges, label='sel.', color='tab:blue', alpha=0.5)
-            ax.hist(H[~idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
-            ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (mph))
-            bin_max = np.amax(H)
-            ax.set_xlim([0, bin_max])
+            bin_edges = np.histogram_bin_edges(self.H, bins='auto')
+            ax.hist(self.H[self.idx_range], bins=bin_edges, label='sel.', color='tab:blue', alpha=0.5)
+            ax.hist(self.H[~self.idx_range], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
+            if self.iterate:
+                ax.hist(self.H0[self.idx_range0], bins=bin_edges, label='sel.', color='tab:red', alpha=0.5)
+                ax.hist(self.H0[~self.idx_range0], bins=bin_edges, label='del.', color='tab:grey', alpha=0.5)
+            for ph in self.mph:
+                if ph:
+                    ax.axvline(ph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (ph))
             ax.set_title('Unsmoothed heights')
         elif type == 'optimal filter':
-            Hopt = self.data['Hopt']
-            H = self.data['H']
-            H0 = self.data['H0']
-            pdfx = self.data['pdfx']
-            pdfy = self.data['pdfy']
-            bin_max = np.amax((np.amax(H), np.amax(Hopt)))
-            bin_edges = np.arange(0, bin_max+new_binsize, new_binsize)
-            n0 = len(H0) / len(H)
-            bin_edges = np.histogram_bin_edges(H0, bins='auto')
-            ax.hist(H0, color='k', alpha=0.5, label='$\it{H}_{0}$')
-            bin_edges = np.histogram_bin_edges(Hopt, bins='auto')
-            ax.hist(H[idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
-            ax.hist(Hopt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
-            ax.plot(pdfx, pdfy, c='k', ls='--', lw=0.5, label='KDE')
-            ax.set_xlim([0, bin_max])
+            bin_edges = np.histogram_bin_edges(self.H_0, bins='auto')
+            ax.hist(self.H_0, color='k', alpha=0.5, label='$\it{H}_{0}$')
+            bin_edges = np.histogram_bin_edges(self.H_opt, bins='auto')
+            ax.hist(self.H[self.idx_range], bins=bin_edges, label='$\it{H}$', color='tab:blue', alpha=0.5)
+            ax.hist(self.H_opt, bins=bin_edges, color='tab:green', alpha=0.5, label='$\it{H}_{opt}$')
+            ax.plot(self.pdf_x, self.pdf_y, c='k', ls='--', lw=0.5, label='KDE')
             ax.set_title('Optimal filter heights')
         elif type == 'dark smoothed':
-                dark_H_smoothed = self.data['dark_H_smoothed']
-                if len(dark_H_smoothed):
-                    H_smoothed = self.data['H_smoothed']
-                    bin_edges = np.arange(mph, np.amax(dark_H_smoothed)+new_binsize, new_binsize)
-                    bin_edges = np.histogram_bin_edges(dark_H_smoothed, bins='auto')
-                    ax.hist(dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
-                    ax.axvline(mph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % mph)
-                    ax.axvline(dark_threshold, c='r', lw=0.5, ls='-.', label='$5\/\it{\\sigma}_{dark}=%.2f$' % dark_threshold)
-                    ax.set_xlim([0, np.amax(H_smoothed)])
+                if len(self.dark_H_smoothed):
+                    bin_edges = np.histogram_bin_edges(self.dark_H_smoothed, bins='auto')
+                    ax.hist(self.dark_H_smoothed, bins=bin_edges, label='dark', color='tab:orange', alpha=0.5)
+                    for ph in self.mph:
+                        if ph:
+                            ax.axvline(ph, c='r', lw=0.5, label='$\it{mph}=%.2f$' % (ph))
+                    ax.axvline(self.noise_std, c='r', lw=0.5, ls='-.', label='$5\/\it{\\sigma}_{dark}=%.2f$' % self.noise_std)
                     ax.set_title('Dark smoothed heights')
         ax.legend()
+        ax.set_xlim([0, bin_max])
         ax.set_xlabel('$\it{H}$')
         ax.set_ylabel('$counts$')
 
 
     def plot_psd_noise(self, ax):
-        Nxx = self.data['Nxx']
-        Nfxx = self.data['Nfxx']
-        ax.semilogx(Nfxx, 10*np.log10(Nxx))
-        ax.set_ylim([-100, 10*np.log10(np.amax(Nxx))])
+        ax.semilogx(self.Nfxx, 10*np.log10(self.Nxx))
+        ax.set_ylim([-100, 10*np.log10(np.amax(self.Nxx))])
         ax.grid(which='major', lw=0.5)
         ax.grid(which='minor', lw=0.2)
         ax.xaxis.get_major_locator().set_params(numticks=99)
@@ -562,10 +612,11 @@ class MKID:
     
 
     def plot_table(self, ax):
-        table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'R0', 'tqp']
+        # table_results = ['T', 'nr_segments', 'Q', 'Qi', 'Qc', 'Nph_dark', 'Nph', 'rej.', '<Hopt>', 'R', 'Ropt', 'Ri', 'Rsn', 'R0', 'tqp']
+        table_results = [self.T, self.nr_segments, self.Q, self.Qi, self.Qc, self.dark_photon_rate, self.photon_rate, self.rej_perc, self.mean_H_opt, self.R, self.R_opt, self.R_i, self.R_sn, self.R_0, self.tau_qp]
         col_labels = ['$\it{T}$ $[K]$', '$\it{T}$ $[s]$', '$\it{Q}$', '$\it{Q_i}$', '$\it{Q_c}$', '$\it{N}_{ph}^{dark}$ $[cps]$', '$\it{N}_{ph}^{det}$ $[cps]$', 'rej. [%]', '$<\it{H}_{opt}>$ $[rad]$', '$\it{R}$', '$\it{R}_{opt}$', '$\it{R}_i$', '$\it{R}_{sn}$', '$\it{R}_{0}$', '$\it{\\tau}_{qp}$ $[\mu s]$']
         table_formats = ['%.1f', '%d', '%.1e', '%.1e', '%.1e', '%.1f', '%.f', '%.f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f', '%.1f','%.f']
-        results_text = [[table_formats[i] % self.data[table_results[i]] for i in np.arange(len(table_results))]] 
+        results_text = [[table_formats[i] % table_results[i] for i in np.arange(len(table_results))]] 
         the_table = ax.table(cellText=results_text,
                     rowLabels=['results'],
                     colLabels=col_labels,
@@ -576,7 +627,7 @@ class MKID:
 
 
     def save(self, figpath):
-        fname = figpath + self.data['name']
+        fname = figpath + self.name
         plt.savefig(fname + '_overview.png')
         plt.savefig(fname + '_overview.svg')
         with open(fname + '_settings.txt','w') as f: 
