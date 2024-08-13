@@ -74,75 +74,118 @@ class MKID:
         print('Elapsed time: %d s' % telapsed)
 
 
-    def pks_vs_sigmas(self, settings, f, stds, binsize, kernel=None):
+    def pks_vs_sigmas(self, settings, f, stds, binsize=.5, kernel=None):
         self.settings = self.import_settings(settings)
 
         self.signal, self.dark_signal = self.coord_transformation()
         if kernel:
             self.signal = medfilt(self.signal, kernel)
             self.dark_signal = medfilt(self.dark_signal, kernel)
-        if self.sw:
-            smooth_binsize = binsize / 2
-        else:
-            smooth_binsize = binsize
+        
         binedges = np.arange(-10, 30, binsize)
-        smooth_binedges = np.arange(-10, 30, smooth_binsize)
         print('(1/3) Constructing noise_model')
 
-        _, nxx, _, noises = self.noise_model(self.pw)
-        noise_std = np.std(noises.reshape((1, -1)))
-        _, _, smooth_noise_std, _ = self.noise_model(self.max_bw)
-        mph = stds[0]*smooth_noise_std
-        mpp = mph / 2
-        locs, props_smoothed = f.find_pks(self.signal, mph, mpp, self.sw, self.window, self.sff)
-        # pulses, pulse_idx = f.filter_single_pulses(self.signal, locs, self.pw, self.rise_offset)
-        H_smoothed = props_smoothed['peak_heights']
-        P_smoothed = props_smoothed['prominences']
-        dark_locs, dark_props_smoothed = f.find_pks(self.dark_signal, mph, mpp, self.sw, self.window, self.sff)
-        dark_H_smoothed = dark_props_smoothed['peak_heights']
-        dark_P_smoothed = dark_props_smoothed['prominences']
+        dark_noise_std = f.get_sigma(self.dark_signal, self.sw, self.window)
+        print(dark_noise_std)
+        light_noise_std = f.get_sigma(self.signal, self.sw, self.window)
+        print(light_noise_std)
+        self.noise_std = light_noise_std
+        _, nxx, _, noises = self.noise_model(self.pw, stds[0])
+        noise_std = f.get_sigma(self.signal, 0, None)
+        print(noise_std)
+        colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+        fig, ax = plt.subplot_mosaic('ca;fe;bd', figsize=(10, 7), constrained_layout=True)
+        for i, nr in enumerate(stds[::-1][:-1]):
+            lower_nr = stds[::-1][i+1]
+            mph, mpp = self.get_mph([lower_nr, nr])
 
-        fig, ax = plt.subplot_mosaic('abcde', figsize=(10, 4), constrained_layout=True)
-        for i, nr_stds in enumerate(stds[::-1][:-1]):
-            new_nr = stds[::-1][i+1]
-            next_mph = nr_stds*smooth_noise_std
-            next_mpp = next_mph / 2
-            new_mph = new_nr*smooth_noise_std
-            new_mpp = new_mph / 2
-            new_idx = (H_smoothed >= new_mph) & (P_smoothed >= new_mpp) & (H_smoothed < next_mph) & (P_smoothed < next_mpp)
-            dark_new_idx = (dark_H_smoothed >= new_mph) & (dark_P_smoothed >= new_mpp) & (dark_H_smoothed < next_mph) & (dark_P_smoothed < next_mpp)
-            new_locs = locs[new_idx]
-            new_pulses, single_idx = f.filter_single_pulses(self.signal, new_locs, self.pulse_length, self.rise_offset)
-            dark_new_locs = dark_locs[dark_new_idx]
-            dark_new_pulses, dark_single_idx = f.filter_single_pulses(self.signal, dark_new_locs, self.pulse_length, self.rise_offset)
-            if i==0:
-                pulse_template = np.mean(new_pulses, axis=0)
-            H = H_smoothed[new_idx][single_idx]
-            dark_H = dark_H_smoothed[dark_new_idx][dark_single_idx]
-            H_opt, _, _, chi_sq = f.optimal_filter(new_pulses, pulse_template, self.sf, self.ssf, nxx)
-            ax['e'].hist(np.absolute(chi_sq), bins='auto', alpha=.5)
-            # dark_H_opt, _, _, _ = f.optimal_filter(dark_new_pulses, pulse_template, self.sf, self.ssf, nxx)
-            ax['a'].plot(np.mean(new_pulses, axis=0)/np.amax(pulse_template), zorder=i, alpha=0.5)
-            ax['d'].hist(H_opt/smooth_noise_std, bins=binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
-            ax['c'].hist(H/smooth_noise_std, bins=smooth_binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
-            ax['b'].hist(dark_H/smooth_noise_std, bins=smooth_binedges, label='%d-%d$\sigma$' % (new_nr, nr_stds), alpha=0.5, zorder=nr_stds)
-        if self.sw:
-            ax['a'].plot(self.window[::-1]/np.amax(self.window))
-        H_opt0, _, _, chi_sq = f.optimal_filter(noises, pulse_template, self.sf, self.ssf, nxx)
-        ax['e'].hist(np.absolute(chi_sq), bins='auto', alpha=.5)
-        ax['a'].plot(np.mean(noises, axis=0)/np.amax(pulse_template), zorder=i+1, alpha=0.5)
-        # ax['b'].hist(H_opt0/smooth_noise_std, bins=smooth_binedges, label='Noises', alpha=0.5, zorder=0)
-        # ax['c'].hist(H_opt0/smooth_noise_std, bins=smooth_binedges, label='Noises', alpha=0.5, zorder=0)
-        ax['d'].hist(H_opt0/smooth_noise_std, bins=binedges, label='Noises', alpha=0.5, zorder=0)
+            locs, props = f.find_pks(self.signal, mph[0], mpp, self.sw, self.window, self.sff)
+            neg_locs, neg_props = f.find_pks(-self.signal, mph[0], mpp, self.sw, self.window, self.sff)
+            locs = np.hstack((locs, neg_locs))
+            sort = np.argsort(locs)
+            locs = locs[sort]
+            H = props['peak_heights']
+            neg_H = -neg_props['peak_heights']
+            H = np.hstack((H, neg_H))[sort]
+            args = np.argwhere((H >= mph[0]) & (H < mph[1])).flatten()
+            neg_args = np.argwhere((H <= -mph[0]) & (H > mph[1])).flatten()
+            pulses, single_idx = f.get_single_pulses(self.signal, args, locs, self.pulse_length, self.rise_offset)
+            neg_pulses, neg_single_idx = f.get_single_pulses(self.signal, neg_args, locs, self.pulse_length, self.rise_offset)
+            
+
+            dark_locs, dark_props = f.find_pks(self.dark_signal, mph[0], mpp, self.sw, self.window, self.sff)
+            neg_dark_locs, neg_dark_props = f.find_pks(-self.dark_signal, mph[0], mpp, self.sw, self.window, self.sff)
+            dark_locs = np.hstack((dark_locs, neg_dark_locs))
+            sort = np.argsort(dark_locs)
+            dark_locs = dark_locs[sort]
+            dark_H = dark_props['peak_heights']
+            neg_dark_H = -neg_dark_props['peak_heights']
+            dark_H = np.hstack((dark_H, neg_dark_H))[sort]
+            dark_args = np.argwhere((dark_H >= mph[0]) & (dark_H < mph[1])).flatten()
+            neg_dark_args = np.argwhere((dark_H <= mph[0]) & (dark_H < mph[1])).flatten()
+            dark_pulses, dark_single_idx = f.get_single_pulses(self.dark_signal, dark_args, dark_locs, self.pulse_length, self.rise_offset)
+            neg_dark_pulses, neg_dark_single_idx = f.get_single_pulses(self.dark_signal, neg_dark_args, dark_locs, self.pulse_length, self.rise_offset)
+            
+            # locs, props = f.find_pks(self.signal, mph, mpp[0], self.sw, self.window, self.sff)
+            # neg_locs, neg_props = f.find_pks(-self.signal, mph, mpp[0], self.sw, self.window, self.sff)
+            # # locs = np.hstack((locs, neg_locs))
+            # # sort = np.argsort(locs)
+            # # locs = locs[sort]
+            # H = props['peak_heights']
+            # neg_H = neg_props['peak_heights']
+            # # H = np.hstack((H, neg_H))[sort]
+            # args = np.argwhere((H >= mpp[0]) & (H < mpp[1])).flatten()
+            # neg_args = np.argwhere((neg_H >= mpp[0]) & (neg_H < mpp[1])).flatten()
+            # pulses, single_idx = f.get_single_pulses(self.signal, args, locs, self.pulse_length, self.rise_offset)
+            # neg_pulses, neg_single_idx = f.get_single_pulses(self.signal, neg_args, neg_locs, self.pulse_length, self.rise_offset)
+            
+            # dark_locs, dark_props = f.find_pks(self.dark_signal, mph, mpp[0], self.sw, self.window, self.sff)
+            # neg_dark_locs, neg_dark_props = f.find_pks(-self.dark_signal, mph, mpp[0], self.sw, self.window, self.sff)
+            # # dark_locs = np.hstack((dark_locs, neg_dark_locs))
+            # # sort = np.argsort(dark_locs)
+            # # dark_locs = dark_locs[sort]
+            # dark_H = dark_props['peak_heights']
+            # neg_dark_H = neg_dark_props['peak_heights']
+            # # dark_H = np.hstack((dark_H, neg_dark_H))[sort]
+            # dark_args = np.argwhere((dark_H >= mpp[0]) & (dark_H < mpp[1])).flatten()
+            # neg_dark_args = np.argwhere((neg_dark_H >= mpp[0]) & (neg_dark_H > mpp[1])).flatten()
+            # dark_pulses, dark_single_idx = f.get_single_pulses(self.dark_signal, dark_args, dark_locs, self.pulse_length, self.rise_offset)
+            # neg_dark_pulses, neg_dark_single_idx = f.get_single_pulses(self.dark_signal, neg_dark_args, neg_dark_locs, self.pulse_length, self.rise_offset)
+
+            if np.sum(single_idx):       
+                if i==0:
+                    pulse_template = np.mean(pulses, axis=0) 
+                    H_opt0, _, _, _ = f.optimal_filter(noises, pulse_template, self.sf, self.ssf, nxx)
+                    ax['b'].hist(H_opt0/noise_std, bins=binedges, label='Noises', alpha=0.5, zorder=0, facecolor='tab:gray')
+                    ax['d'].hist(H_opt0/noise_std, bins=binedges, label='Noises', alpha=0.5, zorder=0, facecolor='tab:gray')
+                H_opt, _, _, _ = f.optimal_filter(pulses, pulse_template, self.sf, self.ssf, nxx)
+                ax['a'].plot(np.mean(pulses, axis=0)/np.amax(pulse_template), label='%d/%d counts' % (np.sum(single_idx), len(single_idx)), zorder=i, alpha=0.5, c=colors[i])
+                ax['d'].hist(H_opt/noise_std, bins=binedges, label='%d-%d$\sigma$' % (lower_nr, nr), alpha=0.5, zorder=nr, edgecolor=colors[i], facecolor='None')
+            if np.sum(neg_single_idx):       
+                neg_H_opt, _, _, _ = f.optimal_filter(neg_pulses, pulse_template, self.sf, self.ssf, nxx)
+                ax['e'].plot(np.mean(neg_pulses, axis=0)/np.amax(pulse_template), label='%d/%d counts' % (np.sum(neg_single_idx), len(neg_single_idx)), zorder=i, alpha=0.5, c=colors[i])
+                ax['d'].hist(neg_H_opt/noise_std, bins=binedges, alpha=0.5, zorder=nr, edgecolor=colors[i], facecolor='None')
+            if np.sum(dark_single_idx):       
+                dark_H_opt, _, _, _ = f.optimal_filter(dark_pulses, pulse_template, self.sf, self.ssf, nxx)
+                ax['c'].plot(np.mean(dark_pulses, axis=0)/np.amax(pulse_template), label='%d/%d counts' % (np.sum(dark_single_idx), len(dark_single_idx)), zorder=i, alpha=0.5, c=colors[i])
+                ax['b'].hist(dark_H_opt/noise_std, bins=binedges, label='%d-%d$\sigma$' % (lower_nr, nr), alpha=0.5, zorder=nr, edgecolor=colors[i], facecolor='None')
+            if np.sum(neg_dark_single_idx):       
+                neg_dark_H_opt, _, _, _ = f.optimal_filter(neg_dark_pulses, pulse_template, self.sf, self.ssf, nxx)
+                ax['f'].plot(np.mean(neg_dark_pulses, axis=0)/np.amax(pulse_template), label='%d/%d counts' % (np.sum(neg_dark_single_idx), len(neg_dark_single_idx)), zorder=i, alpha=0.5, c=colors[i])
+                ax['b'].hist(neg_dark_H_opt/noise_std, bins=binedges, label='%d-%d$\sigma$' % (lower_nr, nr), alpha=0.5, zorder=nr, edgecolor=colors[i], facecolor='None')
+        ax['c'].plot(np.mean(noises, axis=0)/np.amax(pulse_template), label='noises', zorder=i+1, alpha=0.5, c='k')
         ax['a'].set_title('pulse model')
         ax['a'].set_xlabel('')
-        ax['b'].set_title('dark smooth heights')
-        ax['b'].set_xlabel('$H_{dark}/\sigma$')
-        ax['c'].set_title('light smooth heights')
-        ax['c'].set_xlabel('$H/\sigma$')
-        ax['d'].set_title('light optimal heights')
-        ax['d'].set_xlabel('$H_{opt}/\sigma$')
+        ax['c'].set_title('Dark')
+        ax['b'].set_xlabel('$H/\sigma$')
+        ax['a'].set_title('Light')
+        ax['d'].set_xlabel('$H/\sigma$')
+        ax['a'].legend()
+        ax['b'].legend()
+        ax['c'].legend()
         ax['d'].legend()
+        ax['e'].legend()
+        ax['f'].legend()
 
 
     def overview(self, settings, f, max_chuncks=None, redo_peak_model=False, iterate=False, plot_pulses=False, save=False, figpath=''):
@@ -161,7 +204,6 @@ class MKID:
 
 
         print('(1/3) Constructing noise_model')
-
         self.fxx, self.nxx, _, noises = self.noise_model(self.pw)
         self.Nfxx, self.Nxx, self.noise_std, _ = self.noise_model(self.max_bw)
         self.mph, self.mpp = self.get_mph(self.height, self.prominence)
@@ -315,10 +357,10 @@ class MKID:
         return settings
 
 
-    def get_mph(self, min_height, min_prominence):
+    def get_mph(self, min_height=None, min_prominence=None):
         if min_height == None:
             mph = [5 * self.noise_std, None]
-        elif isinstance(self.height, (int, float)):
+        elif isinstance(min_height, (int, float)):
             mph = [min_height * self.noise_std, None]
         else:
             mph = [ph * self.noise_std for ph in min_height]
@@ -405,8 +447,8 @@ class MKID:
         return f.peak_model(signal, mph, mpp, self.pw, self.sw, self.align, self.window, self.sff, self.ssf, self.sstype, self.buffer, self.rise_offset, plot_pulse=self.plot_pulses)
 
 
-    def noise_model(self, bw):
-        return f.noise_model(self.dark_signal, bw, self.sff, self.nr_noise_segments, self.sw, self.window, self.noise_thres)
+    def noise_model(self, bw, thres=None):
+        return f.noise_model(self.dark_signal, bw, self.sff, self.nr_noise_segments, self.sw, self.window, thres)
     
 
     def filter_pulses(self):

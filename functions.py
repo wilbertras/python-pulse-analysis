@@ -217,14 +217,19 @@ def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]
             raise Exception('Please input a proper response type ("amp" or "phase")')
     else:
         raise Exception('Please input a proper coordinate system ("smith" or "circle")')   
-    
-
-
-
     if dark_too:
         return signal, dark_signal
     else:
         return signal
+
+
+def get_sigma(signal, sw, window):
+    # Smooth timestream data for peak finding
+    if sw:    
+        signal = fftconvolve(signal, window, mode='valid')
+    neg_signal = signal[signal<=0]
+    std = np.std(np.hstack((neg_signal, np.absolute(neg_signal))))
+    return np.round(std, decimals=3)
 
 
 def supersample(signal, num, type='interp', axis=0):
@@ -244,49 +249,84 @@ def find_pks(signal, ph, pp, sw, window, sff):
 
     # Smooth timestream data for peak finding
     if sw:    
-        smoothed_signal = fftconvolve(signal, window, mode='valid')
+        signal = fftconvolve(signal, window, mode='valid')
         window_offset = int(np.argmax(window[::-1]))
     else:
-        smoothed_signal = signal
+        signal = signal
         window_offset = 0
 
     # Find peaks in data
-    locs_smoothed, props_smoothed = find_peaks(smoothed_signal, height=ph, prominence=pp)
-    locs = locs_smoothed + window_offset
-    return locs, props_smoothed
+    locs, props = find_peaks(signal, height=ph, prominence=pp)
+    locs = locs + window_offset
+    return locs, props
 
 
-def filter_single_pulses(signal, locs, pw, rise_offset):
+# def get_single_pulses(signal, locs, pw, rise_offset):
+#     pulses = []
+#     nr_peaks = len(locs)
+#     len_signal = len(signal)
+#     singles = np.zeros(nr_peaks, dtype=bool)
+#     for i, loc in enumerate(locs):
+#         single = 1
+#         if  i < nr_peaks - 1 and i > 0: 
+#             if (loc + pw >= locs[i+1] or loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
+#                 single = 0
+#         elif i == 0:
+#             if nr_peaks > 1:
+#                 if (loc + pw >= locs[i+1] or loc + pw >= len_signal or loc - rise_offset < 0):
+#                     single = 0
+#             else:
+#                 if (loc + pw >= len_signal or loc - rise_offset < 0):
+#                     single = 0
+#         elif i == nr_peaks - 1: 
+#             if (loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
+#                 single = 0 
+#         if single:                 
+#             singles[i] = 1
+#             pulse = signal[loc-rise_offset:loc+pw]
+#             pulses.append(pulse)
+        
+#     if np.sum(singles):
+#         pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset)) 
+#         return pulses_aligned, singles
+#     else:
+#         return [], singles
+
+def get_single_pulses(signal, args, locs, pw, rise_offset):
     pulses = []
     nr_peaks = len(locs)
     len_signal = len(signal)
-    too_close = 0
-    single_pulses = np.zeros(nr_peaks, dtype=bool)
-    for i, loc in enumerate(locs):
-        too_close = 0
-        if  i < nr_peaks - 1 and i > 0: 
-            if (loc + pw >= locs[i+1] or loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
-                too_close = 1
-        elif i == 0:
+    singles = np.zeros(nr_peaks, dtype=bool)
+    for arg in args:
+        loc = locs[arg]
+        single = 1
+        if  arg < nr_peaks - 1 and arg > 0: 
+            prev_loc = locs[arg-1]
+            next_loc = locs[arg+1]
+            if (loc + pw >= next_loc or loc - pw - rise_offset <= prev_loc or loc + pw >= len_signal or arg - rise_offset < 0):
+                single = 0
+        elif arg == 0:
+            next_loc = locs[arg+1]
             if nr_peaks > 1:
-                if (loc + pw >= locs[i+1] or loc + pw >= len_signal or loc - rise_offset < 0):
-                    too_close = 1
+                if (loc + pw >= next_loc or loc + pw >= len_signal or loc - rise_offset < 0):
+                    single = 0
             else:
                 if (loc + pw >= len_signal or loc - rise_offset < 0):
-                    too_close = 1
-        elif i == nr_peaks - 1: 
-            if (loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
-                too_close = 1 
-        if not too_close:                 
-            single_pulses[i] = 1
+                    single = 0
+        elif arg == nr_peaks - 1: 
+            prev_loc = locs[arg-1]
+            if (loc - pw - rise_offset <= prev_loc or loc + pw >= len_signal or loc - rise_offset < 0):
+                single = 0 
+        if single:                 
+            singles[arg] = 1
             pulse = signal[loc-rise_offset:loc+pw]
             pulses.append(pulse)
-        pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset))
-    if np.sum(single_pulses):
-        return pulses_aligned, single_pulses
+        
+    if np.sum(singles):
+        pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset)) 
+        return pulses_aligned, singles
     else:
-        return np.empty((1, pw + rise_offset)), single_pulses
-
+        return [], singles
 
 def peak_model(signal, ph, pp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
     '''
@@ -508,7 +548,7 @@ def filter_pulses(pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, H_ra
     return pulses_aligned, H, sel_locs, filtered_locs, pks_smoothed, idx_range
 
 
-def noise_model(signal, pw, sff, nr_req_segments, sw, window, dark_thres):
+def noise_model(signal, pw, sff, nr_req_segments, sw, window, thres=None):
     '''
     This function computes the average noise PSD from a given timestream
     '''
@@ -526,10 +566,10 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window, dark_thres):
         smoothed_signal = signal
 
     # Compute std of the signal, twice, to set as a threshold for pulse detection in the noise segments
-    std = np.std(smoothed_signal)
-    threshold = np.round(dark_thres * std, decimals=2)
-    std = np.std(smoothed_signal[smoothed_signal < threshold])
-    threshold = np.round(dark_thres * std, decimals=2)
+    if not thres:
+        thres = 5
+    std = get_sigma(signal, sw, window)
+    threshold = np.round(thres*std, decimals=3)
     
     # Compute the average noise PSD
     nr_good_segments = 0
