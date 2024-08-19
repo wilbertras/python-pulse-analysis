@@ -68,9 +68,9 @@ class GUI:
         info_path = path[:-4] + '_info.dat'
         try:
             info = f.get_info(info_path)
-            sf = int(info['fs'])
+            sf = int(info[-2])
         except:
-            sf = f.ensure_type(input('No info file found, please input the sampling frequency as integer: \n'), int)
+            sf = f.ensure_type(input('No info file found at: %s. Please input the sampling frequency as integer: \n' % info_path), int)
         dt = int(1 / sf * 1e6)
         tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
         window = f.ensure_type(self.windowtype.get(), str)
@@ -91,52 +91,53 @@ class GUI:
                 max_nr_files = len(files)
                 if nr_files > max_nr_files:
                     nr_files = max_nr_files
-                amp, theta, _ = f.concat_vis(files[:nr_files])
+                _, theta, _ = f.concat_vis(files[:nr_files])
                 name = files[0].split('/')[-1]
             else:
                 self.dark_dir = path
-                amp, theta = f.bin2mat(path)
+                _, theta = f.bin2mat(path)
             
-            _, X = f.smith_coord(theta, amp)
-            nr_points = len(X)
+            nr_points = len(theta)
             t = np.arange(nr_points) / sf
-            # plot_idx = int(nr_points / nr_files)
             plot_idx = int(nr_points)
-            max = np.ceil(np.amax(X[:plot_idx]))
-            max = (np.amax(X[:plot_idx]) // .5 + 1) *.5
-            min = (np.amin(X[:plot_idx]) // -.1 + 1) *-.1
+            max = np.ceil(np.amax(theta[:plot_idx]))
+            max = (np.amax(theta[:plot_idx]) // .5 + 1) *.5
+            min = (np.amin(theta[:plot_idx]) // -.1 + 1) *-.1
             
-            fig, axes = plt.subplot_mosaic('aabc', figsize=(12, 3), constrained_layout=True, sharey=True)
+            fig, axes = plt.subplot_mosaic('aabc', figsize=(12, 3), constrained_layout=True, sharey=True, num=str(path))
             ax = axes['a']
-            # ax.plot(t[:plot_idx], X[:plot_idx], lw=.5, label='Im(z)', zorder=0)
-            ax.set_xlim([0, t[plot_idx-1]])
             ax.set_ylim([min, max])
+            ax.set_xlim([0, t[plot_idx-1]])
             ax.set_xlabel('')
             ax.set_ylabel('Response')
             ax.set_xlabel('time [$s$]')
             ax.set_title(name)
             if tqp:
-                Xsmooth = convolve(X, filter, mode='valid')
-                ax.plot(t[:plot_idx-sw], Xsmooth[:plot_idx-sw], lw=.5, label='smoothed Im(z)', zorder=1)
+                signal = convolve(theta, filter, mode='valid')
+                lbl='smoothed'
+                clr = 'tab:orange'
+                ax.plot(t[:plot_idx-sw], signal[:plot_idx-sw], lw=.5, label=lbl, zorder=1, c=clr)
+            else:
+                signal = theta
+                lbl = 'unsmoothed'
+                clr = 'tab:blue'
+                ax.plot(t[:plot_idx], signal[:plot_idx], lw=.5, label=lbl, zorder=0)
             if thres:
                 if thres_unit == 'stds':
-                    if tqp:
-                        mph = thres * np.std(Xsmooth)
-                    else:
-                        mph = thres * np.std(X)
+                    neg_signal = signal[signal<=0]
+                    std = np.std(np.hstack((neg_signal, np.absolute(neg_signal))))
+                    std = np.round(std, decimals=3)
+                    mph = thres * std
+                    mph = thres * np.std(signal)
                 elif thres_unit == 'resp':
                     mph = thres
 
-                if tqp:
-                    locs, props = find_peaks(Xsmooth, height=mph, prominence=mph/2) 
-                    heights = props['peak_heights']
-                else:
-                    locs, props = find_peaks(X, height=mph, prominence=mph/2) 
-                    # heights = props['peak_heights']
+                locs, props = find_peaks(signal, height=mph, prominence=mph/2) 
+                heights = props['peak_heights']
                 nr_peaks = len(heights)
                 peak_rate = nr_peaks / (nr_points / sf)
                 ax.axhline(mph, color='tab:red', lw=1, label='mph=%.3f' % mph, zorder=2)
-            # ax.legend(loc='upper right')
+            ax.legend(loc='upper right')
             ax = axes['b']
             if thres and pw:
                 ax.axhline(mph, color='tab:red', lw=1, zorder=2)
@@ -168,7 +169,7 @@ class GUI:
                             too_close = 1 
                     if not too_close:                    
                         single_pulses[i] = 1
-                        pulse = X[loc-offset:loc+pw]
+                        pulse = theta[loc-offset:loc+pw]
                         pulses.append(pulse)
                 nr_too_close = np.sum(~single_pulses)
                 axes['a'].scatter(locs[single_pulses] / sf, heights[single_pulses], marker='v', c='None', edgecolors='tab:green', lw=1, label='peaks', zorder=3)
