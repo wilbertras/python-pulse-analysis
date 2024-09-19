@@ -7,8 +7,9 @@ import time
 from copy import copy
 
 try:
-    plt.style.use('../../mpl-stylesheet/custom_mpl_style/matplotlibrc')
+    plt.style.use('matplotlibrc')
 except:
+    print('custom mpl stylesheet not used')
     pass
 
 
@@ -32,30 +33,30 @@ class MKID:
             self.max_chuncks = None
             self.discard_saturated = bool(discard_saturated)
 
-            self.dark_files, _ = f.get_bin_files(dark_dir, kid_nr, pread)
+            self.dark_files, _ = f.get_files(dark_dir, kid_nr, pread)
             nr_dark_loaded = len(self.dark_files)
             if nr_dark_loaded > chuncksize:
                 self.dark_files = self.dark_files[:self.chuncksize]
                 self.nr_dark_segments = self.chuncksize
             else:
                 self.nr_dark_segments = nr_dark_loaded     
-            self.dark_amp, self.dark_phase, removed_dark = f.concat_vis(self.dark_files, discard=self.discard_saturated)
+            self.dark_amp, self.dark_phase, removed_dark = f.get_data(self.dark_files, discard=self.discard_saturated)
             self.nr_dark_segments -= removed_dark      
             print('%d/%d dark files loaded (%d found, %d discarded)' % (self.nr_dark_segments, self.nr_dark_segments+removed_dark, nr_dark_loaded, removed_dark))    
             if self.nr_dark_segments == 0:
                 raise ValueError('No dark files obtained')
             
-            self.light_files, self.light_info_files = f.get_bin_files(light_dir, kid_nr, pread)
+            self.light_files, self.light_info_files = f.get_files(light_dir, kid_nr, pread)
             self.nr_light_loaded = len(self.light_files)
             if self.nr_light_loaded <= self.chuncksize:
-                self.amp, self.phase, removed_light = f.concat_vis(self.light_files, discard=self.discard_saturated)
+                self.amp, self.phase, removed_light = f.get_data(self.light_files, discard=self.discard_saturated)
                 self.nr_segments = self.nr_light_loaded - removed_light
                 self.chunckwise_peakmodel = False
             else:
                 start = 0
                 stop = self.chuncksize
                 light_files_chunck = self.light_files[start:stop]
-                self.amp, self.phase, removed_light = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
+                self.amp, self.phase, removed_light = f.get_data(light_files_chunck, discard=self.discard_saturated)
                 self.nr_segments = self.chuncksize - removed_light
                 self.chunckwise_peakmodel = True
             print('%d/%d light files loaded (%d found, %d discarded)' % (self.nr_segments, self.nr_segments+removed_light, self.nr_light_loaded, removed_light))    
@@ -65,7 +66,8 @@ class MKID:
             print('Chunckwise peakmodel is %s' % self.chunckwise_peakmodel)
 
             if len(self.light_info_files) != 0:
-                self.f0, self.Q, self.Qc, self.Qi, self.S21_min, self.fs, self.T = f.get_info(self.light_info_files[0])
+                self.f0, self.Q, self.Qc, self.Qi, self.S21_min, dt, self.T = f.get_info(self.light_info_files[0])
+                self.fs = 1 / dt
             else:                
                 print('No info file obtained')
                 self.f0, self.Q, self.Qc, self.Qi, self.S21_min, self.fs, self.T = 0
@@ -77,19 +79,20 @@ class MKID:
     def pks_vs_sigmas(self, settings, f, stds, binsize=.5):
         self.settings = self.import_settings(settings)
 
-        self.signal, self.dark_signal = self.coord_transformation()
+        self.signal = f.coord_transformation(self.phase, self.amp, self.coord, self.response)
+        self.dark_signal = f.coord_transformation(self.dark_phase, self.dark_amp, self.coord, self.response)
         
         binedges = np.arange(-10, 30, binsize)
         print('(1/3) Constructing noise_model')
 
-        dark_noise_std = f.get_sigma(self.dark_signal, self.sw, self.window)
+        dark_noise_std = f.get_sigma(self.dark_signal, self.window)
         print(dark_noise_std)
-        light_noise_std = f.get_sigma(self.signal, self.sw, self.window)
+        light_noise_std = f.get_sigma(self.signal, self.window)
         print(light_noise_std)
         self.noise_std = light_noise_std
         _, nxx, _, noises = self.noise_model(self.signal, self.pw, self.noise_thres)
         _, _, _, dark_noises = self.noise_model(self.dark_signal, self.pw, self.noise_thres)
-        noise_std = f.get_sigma(self.signal, 0, None)
+        noise_std = f.get_sigma(self.signal, self.window)
         print(noise_std)
         colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
         fig, ax = plt.subplot_mosaic('ca;fe;bd', figsize=(10, 7), constrained_layout=True)
@@ -97,8 +100,8 @@ class MKID:
             lower_nr = stds[::-1][i+1]
             mph, mpp = self.get_mph([lower_nr, nr])
 
-            locs, props = f.find_pks(self.signal, mph[0], mpp, self.sw, self.window, self.sff)
-            neg_locs, neg_props = f.find_pks(-self.signal, mph[0], mpp, self.sw, self.window, self.sff)
+            locs, props = f.find_pks(self.signal, mph[0], mpp, self.window)
+            neg_locs, neg_props = f.find_pks(-self.signal, mph[0], mpp, self.window)
             locs = np.hstack((locs, neg_locs))
             sort = np.argsort(locs)
             locs = locs[sort]
@@ -107,11 +110,11 @@ class MKID:
             H = np.hstack((H, neg_H))[sort]
             args = np.argwhere((H >= mph[0]) & (H < mph[1])).flatten()
             neg_args = np.argwhere((H <= -mph[0]) & (H > -mph[1])).flatten()
-            pulses, single_idx = f.get_single_pulses(self.signal, args, locs, self.pulse_length, self.rise_offset)
-            neg_pulses, neg_single_idx = f.get_single_pulses(self.signal, neg_args, locs, self.pulse_length, self.rise_offset)
+            pulses, single_idx = f.get_single_pulses(self.signal, locs, self.pulse_length, self.rise_offset, args)
+            neg_pulses, neg_single_idx = f.get_single_pulses(self.signal, locs, self.pulse_length, self.rise_offset, neg_args)
 
-            dark_locs, dark_props = f.find_pks(self.dark_signal, mph[0], mpp, self.sw, self.window, self.sff)
-            neg_dark_locs, neg_dark_props = f.find_pks(-self.dark_signal, mph[0], mpp, self.sw, self.window, self.sff)
+            dark_locs, dark_props = f.find_pks(self.dark_signal, mph[0], mpp, self.window)
+            neg_dark_locs, neg_dark_props = f.find_pks(-self.dark_signal, mph[0], mpp, self.window)
             dark_locs = np.hstack((dark_locs, neg_dark_locs))
             sort = np.argsort(dark_locs)
             dark_locs = dark_locs[sort]
@@ -120,8 +123,8 @@ class MKID:
             dark_H = np.hstack((dark_H, neg_dark_H))[sort]
             dark_args = np.argwhere((dark_H >= mph[0]) & (dark_H < mph[1])).flatten()
             neg_dark_args = np.argwhere((dark_H <= -mph[0]) & (dark_H > -mph[1])).flatten()
-            dark_pulses, dark_single_idx = f.get_single_pulses(self.dark_signal, dark_args, dark_locs, self.pulse_length, self.rise_offset)
-            neg_dark_pulses, neg_dark_single_idx = f.get_single_pulses(self.dark_signal, neg_dark_args, dark_locs, self.pulse_length, self.rise_offset)
+            dark_pulses, dark_single_idx = f.get_single_pulses(self.dark_signal, dark_locs, self.pulse_length, self.rise_offset, dark_args)
+            neg_dark_pulses, neg_dark_single_idx = f.get_single_pulses(self.dark_signal, dark_locs, self.pulse_length, self.rise_offset, neg_dark_args)
 
             if np.sum(single_idx):       
                 if i==0:
@@ -172,7 +175,8 @@ class MKID:
         self.save = save
         self.figpath = figpath
 
-        self.signal, self.dark_signal = self.coord_transformation()
+        self.signal = f.coord_transformation(self.phase, self.amp, self.coord, self.response)
+        self.dark_signal = f.coord_transformation(self.dark_phase, self.dark_amp, self.coord, self.response)
 
 
         print('(1/3) Constructing noise_model')
@@ -296,12 +300,10 @@ class MKID:
         self.buffer = f.ensure_type(settings['buffer'], int)
         self.windowtype = f.ensure_type(settings['window'], str)
         self.sw = f.ensure_type(settings['sw'], int)
-        if self.sw and self.sw > 1:
-            self.window = f.get_window(self.windowtype, self.sw*self.sff)
+        self.window = f.get_window(self.windowtype, self.sw*self.sff)
+        if len(self.window):
             self.window_offset = int(np.argmax(self.window[::-1]))
         else:
-            self.sw = 0
-            self.window = None
             self.window_offset = 0
         self.ssf = f.ensure_type(settings['ssf'], int)
         if self.ssf and self.ssf > 1:
@@ -341,10 +343,6 @@ class MKID:
         else:
             mpp = mph[0] / 2
         return mph, mpp
-
-
-    def coord_transformation(self):
-            return f.coord_transformation(self.response, self.coord, self.phase, self.amp, self.dark_phase, self.dark_amp)
     
 
     def peak_model(self, mph, mpp):
@@ -375,9 +373,9 @@ class MKID:
                 if start == 0:
                     amp, phase = self.amp, self.phase
                 else:
-                    amp, phase, removed_chunck = f.concat_vis(light_files_chunck, discard=self.discard_saturated)
+                    amp, phase, removed_chunck = f.get_data(light_files_chunck, discard=self.discard_saturated)
                     removed += removed_chunck
-                signal = f.coord_transformation(self.response, self.coord, phase, amp)
+                signal = f.coord_transformation(phase, amp, self.coord, self.response)
 
                 if self.plot_pulses and start==0:
                     pass
@@ -416,7 +414,7 @@ class MKID:
 
 
     def find_peaks(self, signal, mph, mpp):
-        return f.peak_model(signal, mph, mpp, self.pw, self.sw, self.align, self.window, self.sff, self.ssf, self.sstype, self.buffer, self.rise_offset, plot_pulse=self.plot_pulses)
+        return f.peak_model(signal, mph, mpp, self.pw, self.align, self.window, self.sff, self.ssf, self.sstype, self.buffer, self.rise_offset, plot_pulse=self.plot_pulses)
 
 
     def noise_model(self, signal, bw, thres=None):

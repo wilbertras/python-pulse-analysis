@@ -1,0 +1,40 @@
+#Author: Cameron Davidson-Pilon, original styles from Bayesian Methods for Hackers
+# https://github.com/CamDavidsonPilon/Probabilistic-Programming-and-Bayesian-Methods-for-Hackers/
+# font.family : serif
+font.serif : Computer Modern Roman
+font.size: 16 # small=10, medium=12, large=14, x-large=16
+
+lines.linewidth : 1.0
+
+patch.linewidth: 0.5
+patch.facecolor: blue
+patch.edgecolor: eeeeee
+patch.antialiased: True
+
+text.hinting_factor : 8
+
+# mathtext.fontset : rm
+mathtext.default : regular
+
+axes.facecolor: white
+axes.edgecolor: black
+axes.grid : True
+axes.grid.which : both
+axes.titlesize: medium
+axes.labelsize: small
+xtick.labelsize: x-small
+ytick.labelsize: x-small
+# axes.prop_cycle: cycler('color', ['1f77b4', 'ff7f0e', '2ca02c', 'd62728', '9467bd', '8c564b', 'e377c2', '7f7f7f', 'bcbd22', '17becf'])
+axes.prop_cycle: cycler('color', [	"#0072BD", 	"#D95319", 	"#EDB120", 	"#7E2F8E", 	"#77AC30", 	"#4DBEEE", 	"#A2142F"])
+
+grid.color: b2b2b2
+grid.linestyle: -
+grid.linewidth: 0.5
+grid.alpha : .7
+
+legend.fancybox: True
+legend.fontsize: xx-small
+xtick.direction: in
+ytick.direction: in
+
+savefig.dpi:       300

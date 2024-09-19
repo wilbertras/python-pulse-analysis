@@ -11,19 +11,19 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 
 
-def get_bin_files(dir_path, kid_nr, p_read, type='vis'):
+def get_files(dir_path, kid_nr, p_read, type='vis'):
     txt = 'KID' + str(kid_nr) + '_' + str(p_read) + 'dBm__TD' + str(type)
     if type == 'vis':
-        info_path = dir_path + '/' + txt + '0' + '*_info.dat'
+        info_path = dir_path + '/' + txt + '*_info.dat'
     else:
         info_path = dir_path + '/' + txt + '*_info.dat'
     bin_path = dir_path + '/' + txt + '*.bin'
     list_bin_files = glob.glob(bin_path)
-    info_file = glob.glob(info_path)
+    info_files = glob.glob(info_path)
     if not list_bin_files:
         raise Exception('Please correct folder path as no files were obtained using path:\n%s' % (bin_path))
     list_bin_files = sorted(list_bin_files, key=lambda s: int(re.findall(r'\d+', s)[-2]))
-    return list_bin_files, info_file
+    return list_bin_files, info_files
 
 
 def get_info(file_path):
@@ -33,9 +33,9 @@ def get_info(file_path):
     Qs = re.findall("\d+\.\d+", lines[3])
     Qs = [float(Q) for Q in Qs]
     [Q, Qc, Qi, S21_min] = Qs
-    fs = 1 / float(re.findall("\d+\.\d+", lines[4])[0])
+    dt = float(re.findall("\d+\.\d+", lines[4])[0])
     T = float(re.findall("\d+\.\d+", lines[7])[0])
-    return f0, Q, Qc, Qi, S21_min, fs, T
+    return f0, Q, Qc, Qi, S21_min, dt, T
 
 
 def ensure_type(input_value, preferred_types, orNoneType=False):
@@ -128,7 +128,7 @@ def plot_bin(file_path):
     ax.set_xlim(time[0], time[-1])
 
 
-def concat_vis(file_list, discard=True):
+def get_data(file_list, discard=True):
     limit = -0.5 * np.pi
     amp = []
     phase = []
@@ -182,50 +182,29 @@ def smith_coord(P, R):
     return R_smith, X_smith
 
 
-def coord_transformation(response, coord, phase, amp, dark_phase=[], dark_amp=[]):
-    dark_too = True
-    if len(dark_phase) == 0:
-        dark_too = False
-
-    # if dark_too:
-    #     dark_phase[dark_phase <= limit] += 2 * np.pi
-
+def coord_transformation(phase, amp, coord='smith', response='phase'):
     if coord == 'smith':
-        R, X = smith_coord(phase, amp)
-        if dark_too:
-            R_dark, X_dark = smith_coord(dark_phase, dark_amp)
-        if response == 'R':
-            signal = R
-            if dark_too:
-                dark_signal = R_dark
-        elif response == 'X':
-            signal = X
-            if dark_too:
-                dark_signal = X_dark
+        amp, phase = smith_coord(phase, amp)
+        if response == 'amp':
+            return amp
+        elif response == 'phase':
+            return phase
         else:
-            raise Exception('Please input a proper response type ("R" or "X")')
+            raise Exception('Please input a proper response type ("amp" or "phase")')
     elif coord == 'circle':
         if response == 'phase':
-            signal = phase - np.mean(phase)
-            if dark_too:
-                dark_signal = dark_phase - np.mean(dark_phase)
+            return phase - np.mean(phase)
         elif response == 'amp':
-            signal = (1 - amp) - np.mean(1 - amp)
-            if dark_too:
-                dark_signal = (1 - dark_amp) - np.mean(1 - dark_amp)
+            return (1 - amp) - np.mean(1 - amp)
         else:
             raise Exception('Please input a proper response type ("amp" or "phase")')
     else:
         raise Exception('Please input a proper coordinate system ("smith" or "circle")')   
-    if dark_too:
-        return signal, dark_signal
-    else:
-        return signal
 
 
-def get_sigma(signal, sw, window):
+def get_sigma(signal, window):
     # Smooth timestream data for peak finding
-    if sw:    
+    if len(window):    
         signal = fftconvolve(signal, window, mode='valid')
     neg_signal = signal[signal<=0]
     std = np.std(np.hstack((neg_signal, np.absolute(neg_signal))))
@@ -244,11 +223,9 @@ def supersample(signal, num, type='interp', axis=0):
         raise Exception('Please input correct supersample type: "interp" or "fourier"')
 
 
-def find_pks(signal, ph, pp, sw, window, sff):
-    sw *= sff
-
+def find_pks(signal, ph, pp, window):
     # Smooth timestream data for peak finding
-    if sw:    
+    if len(window):    
         signal = fftconvolve(signal, window, mode='valid')
         window_offset = int(np.argmax(window[::-1]))
     else:
@@ -261,38 +238,7 @@ def find_pks(signal, ph, pp, sw, window, sff):
     return locs, props
 
 
-# def get_single_pulses(signal, locs, pw, rise_offset):
-#     pulses = []
-#     nr_peaks = len(locs)
-#     len_signal = len(signal)
-#     singles = np.zeros(nr_peaks, dtype=bool)
-#     for i, loc in enumerate(locs):
-#         single = 1
-#         if  i < nr_peaks - 1 and i > 0: 
-#             if (loc + pw >= locs[i+1] or loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
-#                 single = 0
-#         elif i == 0:
-#             if nr_peaks > 1:
-#                 if (loc + pw >= locs[i+1] or loc + pw >= len_signal or loc - rise_offset < 0):
-#                     single = 0
-#             else:
-#                 if (loc + pw >= len_signal or loc - rise_offset < 0):
-#                     single = 0
-#         elif i == nr_peaks - 1: 
-#             if (loc - pw - rise_offset <= locs[i-1] or loc + pw >= len_signal or loc - rise_offset < 0):
-#                 single = 0 
-#         if single:                 
-#             singles[i] = 1
-#             pulse = signal[loc-rise_offset:loc+pw]
-#             pulses.append(pulse)
-        
-#     if np.sum(singles):
-#         pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset)) 
-#         return pulses_aligned, singles
-#     else:
-#         return [], singles
-
-def get_single_pulses(signal, args, locs, pw, rise_offset):
+def get_single_pulses(signal, locs, pw, rise_offset, args):
     pulses = []
     nr_peaks = len(locs)
     len_signal = len(signal)
@@ -303,7 +249,7 @@ def get_single_pulses(signal, args, locs, pw, rise_offset):
         if  arg < nr_peaks - 1 and arg > 0: 
             prev_loc = locs[arg-1]
             next_loc = locs[arg+1]
-            if (loc + pw >= next_loc or loc - pw - rise_offset <= prev_loc or loc + pw >= len_signal or arg - rise_offset < 0):
+            if (loc + pw >= next_loc or loc - pw - rise_offset <= prev_loc or loc + pw >= len_signal or loc - rise_offset < 0):
                 single = 0
         elif arg == 0:
             next_loc = locs[arg+1]
@@ -321,24 +267,49 @@ def get_single_pulses(signal, args, locs, pw, rise_offset):
             singles[arg] = 1
             pulse = signal[loc-rise_offset:loc+pw]
             pulses.append(pulse)
-        
     if np.sum(singles):
         pulses_aligned = np.array(pulses).reshape((-1, pw+rise_offset)) 
         return pulses_aligned, singles
     else:
         return [], singles
 
-def peak_model(signal, ph, pp, pw, sw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
+
+def get_single_noises(signal, locs, pw):
+    noises = []
+    len_signal = len(signal)
+    nr_noises = 0
+    nr_req_noises = 1000
+    t = 0
+    while nr_noises < nr_req_noises and t+pw < len_signal:
+        if np.any((locs >= t - pw) & (locs <= t+pw)):
+            pass
+        else:
+            noise = signal[t:t+pw]
+            noises.append(noise)
+            nr_noises += 1  
+        t += pw
+    if nr_noises == 0:
+        raise Exception('No good noise segments found')
+    noises = np.array(noises).reshape((-1, pw))
+    return noises
+
+
+def get_avg_psd(pulses, pw, sff, exclude_dc=True):
+    len_onesided = round(pw/ 2) + 1
+    freqs, sxx = welch(pulses, fs=int(sff*1e6), window='hamming', nperseg=pw, noverlap=None, nfft=None, return_onesided=False, axis=1)
+    return freqs[exclude_dc:], np.mean(sxx, axis=0)[exclude_dc:]
+
+
+def peak_model(signal, ph, pp, pw, align, window, sff, ssf, sstype, buffer, rise_offset, plot_pulse=False):
     '''
     This function finds, filters and aligns the pulses in a timestream data
     '''
     pw *= sff
-    sw *= sff
     buffer *= sff
     rise_offset *= sff
 
     # Smooth timestream data for peak finding
-    if sw:    
+    if len(window):    
         smoothed_signal = fftconvolve(signal, window, mode='valid')
         window_offset = int(np.argmax(window[::-1]))
     else:
@@ -470,7 +441,7 @@ def peak_model(signal, ph, pp, pw, sw, align, window, sff, ssf, sstype, buffer, 
                     ax = axes[label]
                     t = np.linspace(0, pw*ssf, len(pulse))
                     ax.plot(t, pulse, lw=0.5, c='tab:blue', label='pulse', zorder=0)
-                    if sw:
+                    if len(window):
                         ax.plot(t, smoothed_pulse, lw=0.5, c='tab:orange', label='smoothed pulse', zorder=1)
                     for h in ph:
                         if h:
@@ -568,7 +539,7 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window, thres=None):
     # Compute std of the signal, twice, to set as a threshold for pulse detection in the noise segments
     if not thres:
         thres = 5
-    std = get_sigma(signal, sw, window)
+    std = get_sigma(signal, window)
     threshold = np.round(thres*std, decimals=3)
     
     # Compute the average noise PSD
@@ -604,7 +575,21 @@ def noise_model(signal, pw, sff, nr_req_segments, sw, window, thres=None):
     return freqs[1:len_onesided], sxx[1:len_onesided], noise_std, noise_segments
 
 
-def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx):
+def opt_filter(mean_pulse, noise_psd, exclude_dc=True):      
+    """
+    optimal_filter computes the optimal filter that needs to be uploaded to the mux
+    :param norm_pulse_fft:  numpy.ndarray, 1D complex array of pulse model
+    :param noise_psd:       numpy.ndarray, 1D complex array of noise model
+    :param exclude_dc:      bool, whether to exclude the DC value of the fft
+    :return filter:         numpy.ndarray, 1D comlex array of normalised optimal filter
+    """
+    norm_pulse = mean_pulse / np.amax(mean_pulse)
+    norm_pulse_fft = fft(norm_pulse)
+    filter = norm_pulse_fft.conj()/noise_psd
+    return ifft(filter)
+
+
+def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx, exclude_dc=True):
     ''' 
     This function applies an optimal filter, i.e. a frequency weighted filter, to the pulses to extract a better estimate of the pulse heights
     '''
@@ -618,21 +603,21 @@ def optimal_filter(pulses, pulse_model, sf, ssf_model, nxx):
         len_onesided = round(len_pulses / ssf_model / 2) + 1
         ssf_pulses = ssf_model
 
-    
     # Compute normalized pulse model
     norm_pulse_model = pulse_model / np.amax(pulse_model)
 
     # Step 1: compute psd and fft of normalized peak-model
-    Mxx = psd(norm_pulse_model, sf*ssf_model)[1:len_onesided]
-    Mf = fft(norm_pulse_model)[1:len_onesided] / ssf_model
+    Mxx = psd(norm_pulse_model, sf*ssf_model)[exclude_dc:len_onesided]
+    Mf = fft(norm_pulse_model)[exclude_dc:len_onesided] / ssf_model
     Mf_conj = Mf.conj()
 
     # Step 2: compute fft of all pulses
-    Df = fft(pulses, axis=-1)[:, 1:len_onesided] / ssf_pulses
-    Dxx = psd(pulses, sf*ssf_pulses)[:, 1:len_onesided]
+    Df = fft(pulses, axis=-1)[:, exclude_dc:len_onesided] / ssf_pulses
+    Dxx = psd(pulses, sf*ssf_pulses)[:, exclude_dc:len_onesided]
     mean_Dxx = np.mean(Dxx, axis=0)
 
     # Step 3: obtain improved pulse height estimates
+    nxx = nxx[exclude_dc:len_onesided]
     numerator = Mf_conj * Df / nxx
     denominator = Mf_conj * Mf / nxx
     int_numerator = np.sum(numerator, axis=-1)
@@ -785,8 +770,10 @@ def get_window(type, tau):
         M = int(tau*3)
         y = windows.exponential(M, center=0, tau=tau, sym=False)
         y /= np.sum(y) 
+    elif type == 'None':
+        y = []
     else:
-        raise Exception('Windowtype was given as %s. Please input a correct window type: "exp" or "box"' % type)
+        raise Exception('Windowtype was given as %s. Please input a correct window type: "exp", "box" or "None"' % type)
     return y[::-1]
 
 

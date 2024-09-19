@@ -68,10 +68,11 @@ class GUI:
         info_path = path[:-4] + '_info.dat'
         try:
             info = f.get_info(info_path)
-            sf = int(info[-2])
+            dt = info[-2]*1e6
+            sf = int(1 / (dt * 1e-6))
         except:
             sf = f.ensure_type(input('No info file found at: %s. Please input the sampling frequency as integer: \n' % info_path), int)
-        dt = int(1 / sf * 1e6)
+            dt = 1 / sf * 1e6
         tqp = f.ensure_type(self.smooth_entry.get(), int, orNoneType=True)
         window = f.ensure_type(self.windowtype.get(), str)
         if tqp:
