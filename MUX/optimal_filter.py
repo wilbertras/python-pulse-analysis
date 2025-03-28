@@ -17,11 +17,9 @@ def pulse_model(pulses, pw, sf):
 
     mean_pulse = np.mean(pulses, axis=0)
     max_pulse = np.amax(mean_pulse)
-
     norm_pulse = mean_pulse / max_pulse
     
     norm_pulse_fft = fft(norm_pulse)[:len_onesided]
-
     norm_pulse_psd = 1 / (pw * sf) * np.absolute(norm_pulse_fft)**2
     norm_pulse_psd[1:-1] *= 2   
     return norm_pulse, norm_pulse_fft, norm_pulse_psd
@@ -78,9 +76,9 @@ def optimal_filter(norm_pulse_fft, noise_psd, exclude_dc=True):
     :param exclude_dc:      bool, whether to exclude the DC value of the fft
     :return filter:         numpy.ndarray, 1D comlex array of normalised optimal filter
     """
-    numerator = norm_pulse_fft.conj()[exclude_dc:]/noise_psd[exclude_dc:]
-    denominator = np.sum(np.absolute(norm_pulse_fft[exclude_dc:])**2/noise_psd[exclude_dc:])
-    filter = numerator / denominator
+    num = norm_pulse_fft.conj()[exclude_dc:]/noise_psd[exclude_dc:]
+    denom = np.sum(np.absolute(norm_pulse_fft[exclude_dc:])**2/noise_psd[exclude_dc:])
+    filter = num / denom
     return filter
 
 
@@ -94,7 +92,7 @@ def pulse_height(pulse, len_onesided, optimal_filter, exclude_dc=True):
     :return H:              float, optimal pulse height
     """
     pulse_fft = fft(pulse)[exclude_dc:len_onesided]
-    H =np.sum(pulse_fft * optimal_filter).real
+    H = np.sum(pulse_fft * optimal_filter).real
     return H
 
 
